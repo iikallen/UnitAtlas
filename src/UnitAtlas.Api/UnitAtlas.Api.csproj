@@ -7,6 +7,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
     <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\UnitAtlas.Contracts\UnitAtlas.Contracts.csproj" />
+    <ProjectReference Include="..\UnitAtlas.Application\UnitAtlas.Application.csproj" />
+    <ProjectReference Include="..\UnitAtlas.Domain\UnitAtlas.Domain.csproj" />
+    <ProjectReference Include="..\UnitAtlas.Infrastructure\UnitAtlas.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

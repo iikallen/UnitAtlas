@@ -5,8 +5,28 @@ on:
   pull_request:
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: docker compose build
+      - name: Build images
+        run: docker compose build
+      - name: Start isolated stack
+        run: docker compose up -d --wait
+      - name: Run .NET tests
+        run: >-
+          docker run --rm
+          --add-host=host.docker.internal:host-gateway
+          -e UNITATLAS_TEST_URL=http://host.docker.internal:8080
+          -v "${{ github.workspace }}:/work"
+          -w /work
+          mcr.microsoft.com/dotnet/sdk:10.0
+          dotnet test UnitAtlas.slnx --configuration Release
+      - name: Smoke test web
+        run: curl --fail --silent http://localhost:3000 >/dev/null
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

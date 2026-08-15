@@ -1,24 +1,23 @@
 # UnitAtlas
 
-Минимальный вертикальный срез платформы цифрового паспорта и прослеживаемости каждой произведённой единицы.
+Минимальный вертикальный срез платформы цифрового паспорта и прослеживаемости произведённой единицы.
 
-## Что уже работает
+## Текущее состояние
 
-- каталог продуктов с GTIN;
-- уникальные изделия с UnitAtlas ID, серийным номером и партией;
-- неизменяемый Event Ledger;
-- быстрая проекция Current State;
-- защита от повторной записи события через `idempotency_key`;
-- поиск/сканирование QR и Data Matrix в поддерживаемом мобильном браузере;
-- публичный цифровой паспорт с timeline;
-- PostgreSQL, ASP.NET Core 10, Next.js и Docker Compose.
+- каталог продуктов, изделия и append-only журнал событий;
+- детерминированная проекция текущего состояния по `(occurred_at, sequence)`;
+- tenant-aware ключи и связи в PostgreSQL;
+- ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
+- unit- и HTTP integration-тесты в CI.
+
+Архитектурные границы описаны в [ADR 0001](docs/adr/0001-modular-monolith.md), а прогресс к пилоту — в [матрице v0.1](docs/architecture/v0.1-definition-of-done.md).
 
 ## Запуск
 
-Нужен только Docker Desktop:
+Нужен Docker Desktop:
 
 ```powershell
-docker compose up --build
+docker compose up --build --wait
 ```
 
 После старта:
@@ -26,37 +25,45 @@ docker compose up --build
 - интерфейс: http://localhost:3000
 - API: http://localhost:8080
 - OpenAPI: http://localhost:8080/openapi/v1.json
-- healthcheck: http://localhost:8080/health
+- liveness: http://localhost:8080/health/live
+- readiness: http://localhost:8080/health/ready
 
-При первом запуске API создаёт демо-компанию, продукт и три изделия.
+Compose применяет миграции и добавляет demo-данные. В остальных окружениях обе операции выключены по умолчанию.
 
-## API
-
-| Метод | Маршрут | Назначение |
-| --- | --- | --- |
-| `GET` | `/api/dashboard` | Сводка и последние изделия |
-| `GET/POST` | `/api/products` | Каталог продуктов |
-| `GET/POST` | `/api/units` | Список и создание изделий |
-| `GET` | `/api/units/{atlasId}` | Полный цифровой паспорт |
-| `POST` | `/api/units/{atlasId}/events` | Добавление события |
-
-## Ограничения v0.1
-
-Факт: приложение работает в demo single-tenant режиме. `tenant_id` уже есть во всех основных сущностях, но вход, пользователи и роли пока не реализованы.
-
-Риск: публиковать эту сборку в интернет нельзя — без аутентификации tenant нельзя считать границей безопасности.
-
-Рекомендация: перед пилотом добавить OIDC-провайдера и проверку tenant/role на каждом endpoint. Это превратит заложенную модель из логической границы в реальную защиту данных.
-
-Отложено до подтверждённой необходимости: Flutter, offline queue, агрегация Box/Pallet, 1C/ИС МПТ, Redis, S3, Kafka, Kubernetes и ClickHouse.
-
-## Проверка и rollback
+## Проверка
 
 ```powershell
-docker compose build
-docker compose up -d
-Invoke-RestMethod http://localhost:8080/health
-Invoke-WebRequest http://localhost:3000
+docker compose up -d --build --wait
+docker run --rm --add-host=host.docker.internal:host-gateway `
+  -e UNITATLAS_TEST_URL=http://host.docker.internal:8080 `
+  -v "${PWD}:/work" -w /work mcr.microsoft.com/dotnet/sdk:10.0 `
+  dotnet test UnitAtlas.slnx --configuration Release
 ```
 
-Остановить приложение: `docker compose down`. Удалить только локальные demo-данные: `docker compose down -v`.
+## Миграции
+
+Создание миграции:
+
+```powershell
+docker run --rm -v "${PWD}:/work" -w /work mcr.microsoft.com/dotnet/sdk:10.0 `
+  sh -lc "dotnet tool restore && dotnet tool run dotnet-ef migrations add NAME --project src/UnitAtlas.Infrastructure --startup-project src/UnitAtlas.Infrastructure --output-dir Persistence/Migrations"
+```
+
+В production сначала генерируется и проверяется SQL; API не должен самостоятельно менять схему:
+
+```powershell
+dotnet tool run dotnet-ef migrations script --idempotent --project src/UnitAtlas.Infrastructure --startup-project src/UnitAtlas.Infrastructure
+dotnet tool run dotnet-ef migrations script InitialArchitecture 0 --project src/UnitAtlas.Infrastructure --startup-project src/UnitAtlas.Infrastructure
+```
+
+## Ограничения
+
+Факт: текущая сборка остаётся demo single-tenant и не имеет OIDC/RBAC/RLS.
+
+Риск: её нельзя публиковать в интернет как pilot-ready систему — `tenant_id` уже защищён ограничениями БД, но контекст пользователя ещё не устанавливает tenant.
+
+Минимальный следующий шаг: добавить OIDC, tenant context и negative cross-tenant tests; это превратит границу схемы в реальную границу доступа.
+
+## Rollback
+
+`docker compose down` останавливает сервисы и сохраняет данные. `docker compose down -v` удаляет только volume текущего Compose-проекта и предназначен для одноразового demo/CI окружения.
