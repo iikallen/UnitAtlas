@@ -3,15 +3,16 @@ services:
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-unitatlas}
-      POSTGRES_USER: ${POSTGRES_USER:-unitatlas}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-unitatlas_dev}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-unitatlas_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-unitatlas_admin_dev}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-unitatlas} -d ${POSTGRES_DB:-unitatlas}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-unitatlas_admin} -d ${POSTGRES_DB:-unitatlas}"]
       interval: 3s
       timeout: 3s
       retries: 20
     volumes:
       - unitatlas-data:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-unitatlas-app-role.sql:ro
 
   api:
     build:
@@ -19,8 +20,11 @@ services:
       dockerfile: src/UnitAtlas.Api/Dockerfile
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-unitatlas};Username=${POSTGRES_USER:-unitatlas};Password=${POSTGRES_PASSWORD:-unitatlas_dev}
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-unitatlas};Username=unitatlas;Password=unitatlas_dev
       Cors__Origin: http://localhost:3000
+      Authentication__DemoMode: "true"
+      Authentication__DemoTenantId: 11111111-1111-1111-1111-111111111111
       Database__ApplyMigrations: "true"
       Demo__SeedData: "true"
     depends_on:

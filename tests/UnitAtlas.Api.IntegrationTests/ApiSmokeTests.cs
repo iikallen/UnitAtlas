@@ -49,4 +49,26 @@ public sealed class ApiSmokeTests
         Assert.Equal(HttpStatusCode.BadRequest, product.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, traceEvent.StatusCode);
     }
+
+    [Fact]
+    public async Task Tenant_membership_and_rls_block_cross_tenant_access()
+    {
+        using var secondTenantRequest = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard");
+        secondTenantRequest.Headers.Add("X-Demo-Subject", "second.viewer");
+        secondTenantRequest.Headers.Add("X-Demo-Tenant", "22222222-2222-2222-2222-222222222222");
+        var secondTenantResponse = await _client.SendAsync(secondTenantRequest);
+        Assert.Equal(HttpStatusCode.OK, secondTenantResponse.StatusCode);
+        Assert.Equal(1, (await secondTenantResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("totalUnits").GetInt32());
+
+        using var mismatchedMembership = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard");
+        mismatchedMembership.Headers.Add("X-Demo-Subject", "demo.operator");
+        mismatchedMembership.Headers.Add("X-Demo-Tenant", "22222222-2222-2222-2222-222222222222");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(mismatchedMembership)).StatusCode);
+
+        using var viewerWrite = new HttpRequestMessage(HttpMethod.Post, "/api/products");
+        viewerWrite.Headers.Add("X-Demo-Subject", "second.viewer");
+        viewerWrite.Headers.Add("X-Demo-Tenant", "22222222-2222-2222-2222-222222222222");
+        viewerWrite.Content = JsonContent.Create(new { sku = "DENIED", name = "Denied", gtin = "04870000000002" });
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(viewerWrite)).StatusCode);
+    }
 }

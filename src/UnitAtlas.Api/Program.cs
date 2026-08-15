@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using UnitAtlas.Application.Traceability;
+using UnitAtlas.Application.Tenancy;
+using UnitAtlas.Api.Auth;
 using UnitAtlas.Contracts;
 using UnitAtlas.Domain;
 using UnitAtlas.Infrastructure;
@@ -8,6 +10,7 @@ using UnitAtlas.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddUnitAtlasSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddOpenApi();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration["Cors:Origin"] ?? "http://localhost:3000")
@@ -20,7 +23,11 @@ app.MapOpenApi();
 if (builder.Configuration.GetValue<bool>("Database:ApplyMigrations"))
     await DatabaseInitializer.MigrateAndSeedAsync(app.Services, builder.Configuration);
 
-app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.1.0" }));
+app.UseAuthentication();
+app.UseMiddleware<TenantContextMiddleware>();
+app.UseAuthorization();
+
+app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.1.0" })).AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/health/ready", async (UnitAtlasDb db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.Problem("Database unavailable"));
@@ -28,6 +35,7 @@ app.MapGet("/health", async (UnitAtlasDb db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.Problem("Database unavailable"));
 
 var api = app.MapGroup("/api");
+api.RequireAuthorization();
 
 api.MapGet("/dashboard", async (UnitAtlasDb db) =>
 {
@@ -42,24 +50,23 @@ api.MapGet("/dashboard", async (UnitAtlasDb db) =>
         statuses = counts,
         recentUnits = units
     });
-});
+}).RequireAuthorization(Permissions.UnitsRead);
 
 api.MapGet("/products", async (UnitAtlasDb db) => Results.Ok(await db.Products
     .OrderBy(x => x.Name)
     .Select(x => new { x.Id, x.Sku, x.Name, x.Gtin })
-    .ToListAsync()));
+    .ToListAsync())).RequireAuthorization(Permissions.UnitsRead);
 
-api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db) =>
+api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db, ITenantContext tenantContext) =>
 {
     if (string.IsNullOrWhiteSpace(request.Sku) || string.IsNullOrWhiteSpace(request.Name)
         || string.IsNullOrWhiteSpace(request.Gtin) || request.Gtin.Length is < 8 or > 14)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["product"] = ["SKU, name and an 8-14 digit GTIN are required."] });
 
-    var tenantId = await db.Tenants.Select(x => x.Id).SingleAsync();
     var product = new Product
     {
         Id = Guid.NewGuid(),
-        TenantId = tenantId,
+        TenantId = tenantContext.TenantId,
         Sku = request.Sku.Trim(),
         Name = request.Name.Trim(),
         Gtin = request.Gtin.Trim(),
@@ -68,10 +75,11 @@ api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db) =>
     db.Products.Add(product);
     await db.SaveChangesAsync();
     return Results.Created($"/api/products/{product.Id}", new { product.Id, product.Sku, product.Name, product.Gtin });
-});
+}).RequireAuthorization(Permissions.ProductsManage);
 
 api.MapGet("/units", async (string? query, UnitAtlasDb db) =>
-    Results.Ok(await UnitQuery(db, query).Take(100).ToListAsync()));
+    Results.Ok(await UnitQuery(db, query).Take(100).ToListAsync()))
+    .RequireAuthorization(Permissions.UnitsRead);
 
 api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
 {
@@ -98,7 +106,7 @@ api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
     db.UnitStates.Add(NewState(unit, trace, "Manufactured"));
     await db.SaveChangesAsync();
     return Results.Created($"/api/units/{unit.AtlasId}", new { unit.AtlasId });
-});
+}).RequireAuthorization(Permissions.UnitsCreate);
 
 api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
 {
@@ -119,7 +127,7 @@ api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
         state = new { state.Status, state.Location, state.UpdatedAt },
         events
     });
-});
+}).RequireAuthorization(Permissions.UnitsRead);
 
 api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest request, UnitAtlasDb db) =>
 {
@@ -151,7 +159,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
         return Results.Ok(new { winner.Id, duplicate = true });
     }
     return Results.Created($"/api/units/{atlasId}", new { trace.Id, duplicate = false });
-});
+}).RequireAuthorization(Permissions.EventsRecord);
 
 app.Run();
 

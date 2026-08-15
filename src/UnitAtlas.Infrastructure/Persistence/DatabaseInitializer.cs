@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using UnitAtlas.Application.Tenancy;
 using UnitAtlas.Application.Traceability;
 using UnitAtlas.Domain;
 
@@ -15,15 +16,24 @@ public static class DatabaseInitializer
         await db.Database.MigrateAsync(cancellationToken);
 
         if (bool.TryParse(configuration["Demo:SeedData"], out var seedData) && seedData)
-            await SeedAsync(db, cancellationToken);
+            await SeedAsync(db, scope.ServiceProvider.GetRequiredService<ITenantContext>(), cancellationToken);
     }
 
-    private static async Task SeedAsync(UnitAtlasDb db, CancellationToken cancellationToken)
+    private static async Task SeedAsync(UnitAtlasDb db, ITenantContext tenantContext, CancellationToken cancellationToken)
     {
         if (await db.Tenants.AnyAsync(cancellationToken)) return;
 
         var now = DateTimeOffset.UtcNow;
-        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "Atlas Manufacturing", CreatedAt = now };
+        var tenant = new Tenant { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), Name = "Atlas Manufacturing", CreatedAt = now };
+        tenantContext.Initialize(tenant.Id, "demo.operator", TenantRole.Owner);
+        var membership = new TenantMembership
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            UserSubject = "demo.operator",
+            Role = TenantRole.Owner,
+            CreatedAt = now
+        };
         var product = new Product
         {
             Id = Guid.NewGuid(),
@@ -33,7 +43,7 @@ public static class DatabaseInitializer
             Gtin = "04871234567890",
             CreatedAt = now
         };
-        db.AddRange(tenant, product);
+        db.AddRange(tenant, membership, product);
 
         var seeds = new[]
         {
@@ -60,6 +70,41 @@ public static class DatabaseInitializer
             db.AddRange(unit, manufactured, latest, NewState(unit, latest, status));
         }
         await db.SaveChangesAsync(cancellationToken);
+
+        var secondTenant = new Tenant { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), Name = "Second Tenant", CreatedAt = now };
+        var secondMembership = new TenantMembership
+        {
+            Id = Guid.NewGuid(),
+            TenantId = secondTenant.Id,
+            UserSubject = "second.viewer",
+            Role = TenantRole.Viewer,
+            CreatedAt = now
+        };
+        var secondProduct = new Product
+        {
+            Id = Guid.NewGuid(),
+            TenantId = secondTenant.Id,
+            Sku = "PRIVATE-SKU",
+            Name = "Second tenant product",
+            Gtin = "04870000000001",
+            CreatedAt = now
+        };
+        tenantContext.Initialize(secondTenant.Id, "second.viewer", TenantRole.Viewer);
+        var secondUnit = new TrackedUnit
+        {
+            Id = Guid.NewGuid(),
+            TenantId = secondTenant.Id,
+            ProductId = secondProduct.Id,
+            AtlasId = "UA-KZ-2026-PRIVATE0001",
+            Serial = "PRIVATE-0001",
+            Lot = "PRIVATE-LOT",
+            ManufacturedAt = now.AddDays(-1),
+            CreatedAt = now.AddDays(-1)
+        };
+        var secondEvent = NewEvent(secondUnit, "MANUFACTURED", "Private factory", $"seed:{secondUnit.Id}:manufactured", "system", secondUnit.ManufacturedAt, 1);
+        db.AddRange(secondTenant, secondMembership, secondProduct, secondUnit, secondEvent, NewState(secondUnit, secondEvent, "Manufactured"));
+        await db.SaveChangesAsync(cancellationToken);
+        tenantContext.Clear();
     }
 
     private static TraceEvent NewEvent(TrackedUnit unit, string type, string location, string key, string actor, DateTimeOffset occurredAt, long sequence) => new()

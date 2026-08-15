@@ -7,6 +7,28 @@ public sealed class Tenant
     public DateTimeOffset CreatedAt { get; set; }
 }
 
+public enum TenantRole
+{
+    Owner,
+    Admin,
+    ProductionManager,
+    ProductionOperator,
+    QualityManager,
+    QualityOperator,
+    WarehouseManager,
+    WarehouseOperator,
+    Viewer
+}
+
+public sealed class TenantMembership
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public required string UserSubject { get; set; }
+    public TenantRole Role { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public sealed class Product
 {
     public Guid Id { get; set; }

@@ -7,6 +7,7 @@
 - каталог продуктов, изделия и append-only журнал событий;
 - детерминированная проекция текущего состояния по `(occurred_at, sequence)`;
 - tenant-aware ключи и связи в PostgreSQL;
+- generic OIDC bearer validation, membership roles/permissions и PostgreSQL RLS;
 - ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
 - unit- и HTTP integration-тесты в CI.
 
@@ -29,6 +30,10 @@ docker compose up --build --wait
 - readiness: http://localhost:8080/health/ready
 
 Compose применяет миграции и добавляет demo-данные. В остальных окружениях обе операции выключены по умолчанию.
+
+Compose также включает development-only authentication: запрос без заголовков выполняется как demo Owner. Для negative tests доступны `X-Demo-Subject` и `X-Demo-Tenant`. Эта схема регистрируется только при одновременных `ASPNETCORE_ENVIRONMENT=Development` и `Authentication__DemoMode=true`.
+
+В production API требует настройки `Authentication__Authority` и `Authentication__Audience`, валидирует OIDC access token и ожидает claims `sub` и `tenant_id`. Пользователь должен иметь соответствующую запись `TenantMembership`.
 
 ## Проверка
 
@@ -58,11 +63,11 @@ dotnet tool run dotnet-ef migrations script InitialArchitecture 0 --project src/
 
 ## Ограничения
 
-Факт: текущая сборка остаётся demo single-tenant и не имеет OIDC/RBAC/RLS.
+Факт: API имеет generic OIDC bearer validation, permission policies, tenant context, EF query filters, composite FK и forced PostgreSQL RLS. Runtime DB-role не является superuser.
 
-Риск: её нельзя публиковать в интернет как pilot-ready систему — `tenant_id` уже защищён ограничениями БД, но контекст пользователя ещё не устанавливает tenant.
+Риск: внешний Identity Provider и production memberships не создаются репозиторием автоматически, а Next.js ещё не реализует confidential OIDC/BFF session. Development demo auth нельзя включать в публичном окружении.
 
-Минимальный следующий шаг: добавить OIDC, tenant context и negative cross-tenant tests; это превратит границу схемы в реальную границу доступа.
+Минимальный следующий шаг: перевести Next.js на confidential OIDC/BFF и отделить anonymous public passport от internal API. Это исключит privileged browser→API доступ.
 
 ## Rollback
 
