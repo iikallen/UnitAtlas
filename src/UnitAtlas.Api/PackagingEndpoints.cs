@@ -147,6 +147,8 @@ public static class PackagingEndpoints
         await using var transaction = await db.Database.BeginTransactionAsync();
         try
         {
+            // Graph mutations are serialized per tenant so two concurrent inverse edges cannot both pass cycle detection.
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({tenantContext.TenantId.ToString()}, 0))");
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM logistic_units WHERE \"Id\" = {parent.Id} FOR UPDATE");
             existing = await db.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Key == idempotencyKey);
             if (existing is not null)
