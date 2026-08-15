@@ -13,7 +13,12 @@ public static class EventRequestHash
             request.EventType?.Trim().ToUpperInvariant(),
             request.Location?.Trim(),
             request.Actor?.Trim(),
-            request.OccurredAt?.ToUniversalTime().ToString("O"));
+            request.OccurredAt?.ToUniversalTime().ToString("O"),
+            request.ReadPointId,
+            request.BusinessLocationId,
+            request.BusinessStep?.Trim(),
+            request.Disposition?.Trim(),
+            request.SourceSystem?.Trim());
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 }

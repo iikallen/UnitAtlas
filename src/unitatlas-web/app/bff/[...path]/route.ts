@@ -9,9 +9,12 @@ async function proxy(request: Request, { params }: { params: Promise<{ path: str
     headers: request.headers.get("content-type") ? { "Content-Type": request.headers.get("content-type")! } : undefined,
     body
   });
+  const headers = new Headers({ "Content-Type": response.headers.get("content-type") ?? "application/json" });
+  for (const name of ["X-Next-Cursor", "Retry-After"])
+    if (response.headers.has(name)) headers.set(name, response.headers.get(name)!);
   return new Response(response.body, {
     status: response.status,
-    headers: { "Content-Type": response.headers.get("content-type") ?? "application/json" }
+    headers
   });
 }
 

@@ -13,6 +13,8 @@
 - Legacy GTIN/SKU/AtlasId/Serial/Lot переносятся миграцией; строковые поля пока сохраняются для обратной совместимости API.
 - Все новые tenant-таблицы защищены composite FK/query filters/forced RLS.
 - `IIntegrationAdapter` остаётся портом; 1С/ИС МПТ adapters не входят в v0.1.
+- Outbound integration port принимает versioned `WebhookEnvelope`; конкретная доставка остаётся задачей adapter/worker.
+- TraceEvent получает UUIDv7; RLS разрешает ledger/audit только `SELECT` и `INSERT`, а statement triggers запрещают UPDATE/DELETE/TRUNCATE даже привилегированному SQL-клиенту.
 
 ## Риски
 

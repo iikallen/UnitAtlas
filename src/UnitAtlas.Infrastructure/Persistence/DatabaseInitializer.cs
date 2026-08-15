@@ -152,7 +152,7 @@ public static class DatabaseInitializer
 
     private static TraceEvent NewEvent(TrackedUnit unit, string type, string location, string key, string actor, DateTimeOffset occurredAt, long sequence) => new()
     {
-        Id = Guid.NewGuid(),
+        Id = Guid.CreateVersion7(),
         TenantId = unit.TenantId,
         UnitId = unit.Id,
         EventType = type,

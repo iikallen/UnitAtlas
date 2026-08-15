@@ -1,0 +1,13 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+
+namespace UnitAtlas.Api.Observability;
+
+internal static class Telemetry
+{
+    public const string Name = "UnitAtlas.Api";
+    public static readonly ActivitySource Activities = new(Name);
+    public static readonly Meter Meter = new(Name);
+    public static readonly Counter<long> EventsRecorded = Meter.CreateCounter<long>("unitatlas.events.recorded");
+    public static readonly Counter<long> Exceptions = Meter.CreateCounter<long>("unitatlas.exceptions");
+}
