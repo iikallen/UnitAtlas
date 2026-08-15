@@ -101,4 +101,32 @@ public sealed class PackagingTests
         Assert.Equal(HttpStatusCode.Conflict, cycle.StatusCode);
         Assert.Equal("AGGREGATION_CYCLE", (await cycle.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
     }
+
+    [Fact]
+    public async Task Concurrent_inverse_edges_cannot_create_a_cycle()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..10];
+        var left = $"LEFT-{suffix}";
+        var right = $"RIGHT-{suffix}";
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = left, type = "BOX" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = right, type = "BOX" })).StatusCode);
+
+        var leftToRight = _client.PostAsJsonAsync($"/api/v1/logistic-units/{left}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:race:left:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { right }
+        });
+        var rightToLeft = _client.PostAsJsonAsync($"/api/v1/logistic-units/{right}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:race:right:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { left }
+        });
+
+        var responses = await Task.WhenAll(leftToRight, rightToLeft);
+        Assert.Single(responses.Where(response => response.StatusCode == HttpStatusCode.Created));
+        var conflict = Assert.Single(responses.Where(response => response.StatusCode == HttpStatusCode.Conflict));
+        Assert.Equal("AGGREGATION_CYCLE", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+    }
 }
