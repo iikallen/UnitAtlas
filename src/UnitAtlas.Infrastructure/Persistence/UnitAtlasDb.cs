@@ -14,6 +14,16 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     public DbSet<TrackedUnit> Units => Set<TrackedUnit>();
     public DbSet<TraceEvent> TraceEvents => Set<TraceEvent>();
     public DbSet<UnitState> UnitStates => Set<UnitState>();
+    public DbSet<Site> Sites => Set<Site>();
+    public DbSet<Location> Locations => Set<Location>();
+    public DbSet<Lot> Lots => Set<Lot>();
+    public DbSet<ProductIdentifier> ProductIdentifiers => Set<ProductIdentifier>();
+    public DbSet<UnitIdentifier> UnitIdentifiers => Set<UnitIdentifier>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<PublicPassportConfig> PublicPassportConfigs => Set<PublicPassportConfig>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -52,9 +62,18 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
         model.Entity<TraceEvent>().HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique();
         model.Entity<TraceEvent>().HasIndex(x => new { x.TenantId, x.UnitId, x.Sequence }).IsUnique();
         model.Entity<TraceEvent>().HasIndex(x => new { x.TenantId, x.UnitId, x.OccurredAt, x.Sequence });
+        model.Entity<TraceEvent>().Property(x => x.MetadataJson).HasColumnType("jsonb");
         model.Entity<TraceEvent>().HasOne<TrackedUnit>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.UnitId })
             .HasPrincipalKey(x => new { x.TenantId, x.Id });
+        model.Entity<TraceEvent>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ReadPointId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<TraceEvent>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.BusinessLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
         model.Entity<TraceEvent>().HasQueryFilter(x => x.TenantId == CurrentTenantId);
 
         model.Entity<UnitState>().ToTable("unit_states").HasKey(x => x.UnitId);
@@ -62,5 +81,73 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
             .HasForeignKey<UnitState>(x => new { x.TenantId, x.UnitId })
             .HasPrincipalKey<TrackedUnit>(x => new { x.TenantId, x.Id });
         model.Entity<UnitState>().HasQueryFilter(x => x.TenantId == CurrentTenantId);
+
+        TenantEntity<Site>(model, "sites");
+        model.Entity<Site>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        TenantEntity<Location>(model, "locations");
+        model.Entity<Location>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+        model.Entity<Location>().HasOne<Site>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.SiteId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id });
+        model.Entity<Location>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ParentLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<Lot>(model, "lots");
+        model.Entity<Lot>().HasIndex(x => new { x.TenantId, x.ProductId, x.Code }).IsUnique();
+        model.Entity<Lot>().HasOne<Product>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ProductId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id });
+        model.Entity<TrackedUnit>().HasOne<Lot>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.LotId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<ProductIdentifier>(model, "product_identifiers");
+        model.Entity<ProductIdentifier>().HasIndex(x => new { x.TenantId, x.Type, x.Value }).IsUnique();
+        model.Entity<ProductIdentifier>().HasOne<Product>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ProductId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id });
+
+        TenantEntity<UnitIdentifier>(model, "unit_identifiers");
+        model.Entity<UnitIdentifier>().HasIndex(x => new { x.TenantId, x.Type, x.Value }).IsUnique();
+        model.Entity<UnitIdentifier>().HasOne<TrackedUnit>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.UnitId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id });
+
+        TenantEntity<IdempotencyRecord>(model, "idempotency_records");
+        model.Entity<IdempotencyRecord>().HasIndex(x => new { x.TenantId, x.Key }).IsUnique();
+
+        TenantEntity<AuditEntry>(model, "audit_entries");
+        model.Entity<AuditEntry>().Property(x => x.DataJson).HasColumnType("jsonb");
+
+        model.Entity<PublicPassportConfig>().ToTable("public_passport_configs").HasKey(x => x.UnitId);
+        model.Entity<PublicPassportConfig>().HasIndex(x => x.PublicId).IsUnique();
+        model.Entity<PublicPassportConfig>().HasOne<TrackedUnit>().WithOne()
+            .HasForeignKey<PublicPassportConfig>(x => new { x.TenantId, x.UnitId })
+            .HasPrincipalKey<TrackedUnit>(x => new { x.TenantId, x.Id });
+        model.Entity<PublicPassportConfig>().HasQueryFilter(x => x.TenantId == CurrentTenantId);
+
+        TenantEntity<OutboxMessage>(model, "outbox_messages");
+        model.Entity<OutboxMessage>().Property(x => x.PayloadJson).HasColumnType("jsonb");
+        model.Entity<OutboxMessage>().HasIndex(x => new { x.TenantId, x.ProcessedAt, x.CreatedAt });
+
+        TenantEntity<ExternalReference>(model, "external_references");
+        model.Entity<ExternalReference>().HasIndex(x => new { x.TenantId, x.System, x.EntityType, x.Value }).IsUnique();
     }
+
+    private void TenantEntity<TEntity>(ModelBuilder model, string table) where TEntity : class
+    {
+        model.Entity<TEntity>().ToTable(table);
+        model.Entity<TEntity>().HasAlternateKey("TenantId", "Id");
+        model.Entity<TEntity>().HasOne<Tenant>().WithMany()
+            .HasForeignKey("TenantId")
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<TEntity>().HasQueryFilter(BuildTenantFilter<TEntity>());
+    }
+
+    private System.Linq.Expressions.Expression<Func<TEntity, bool>> BuildTenantFilter<TEntity>() where TEntity : class =>
+        entity => EF.Property<Guid>(entity, "TenantId") == CurrentTenantId;
 }

@@ -8,6 +8,8 @@
 - детерминированная проекция текущего состояния по `(occurred_at, sequence)`;
 - tenant-aware ключи и связи в PostgreSQL;
 - generic OIDC bearer validation, membership roles/permissions и PostgreSQL RLS;
+- Site/Location/Lot, extensible identifiers, audit, outbox и public passport config;
+- request-hash idempotency с 409 при повторном key и другом body;
 - ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
 - unit- и HTTP integration-тесты в CI.
 
