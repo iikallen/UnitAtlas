@@ -190,11 +190,38 @@ namespace UnitAtlas.Infrastructure.Persistence.Migrations
                 columns: new[] { "TenantId", "Sscc" },
                 unique: true,
                 filter: "\"Sscc\" IS NOT NULL");
+
+            migrationBuilder.Sql("""
+                ALTER TABLE logistic_units ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE logistic_units FORCE ROW LEVEL SECURITY;
+                CREATE POLICY tenant_isolation ON logistic_units
+                    USING ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+                    WITH CHECK ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
+
+                ALTER TABLE logistic_unit_contents ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE logistic_unit_contents FORCE ROW LEVEL SECURITY;
+                CREATE POLICY tenant_isolation ON logistic_unit_contents
+                    USING ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+                    WITH CHECK ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
+
+                ALTER TABLE aggregation_events ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE aggregation_events FORCE ROW LEVEL SECURITY;
+                CREATE POLICY aggregation_events_read ON aggregation_events FOR SELECT
+                    USING ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
+                CREATE POLICY aggregation_events_append ON aggregation_events FOR INSERT
+                    WITH CHECK ("TenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
+
+                CREATE TRIGGER aggregation_events_append_only
+                    BEFORE UPDATE OR DELETE OR TRUNCATE ON aggregation_events
+                    FOR EACH STATEMENT EXECUTE FUNCTION unitatlas_reject_immutable_mutation();
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DROP TRIGGER IF EXISTS aggregation_events_append_only ON aggregation_events;");
+
             migrationBuilder.DropTable(
                 name: "logistic_unit_contents");
 
