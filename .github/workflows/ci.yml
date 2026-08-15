@@ -13,6 +13,11 @@ jobs:
         run: docker compose build
       - name: Start isolated stack
         run: docker compose up -d --wait
+      - name: Verify forced RLS boundary
+        run: |
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT usesuper FROM pg_user WHERE usename='unitatlas'" | grep -qx t
+          docker compose exec -T -e PGPASSWORD=unitatlas_dev db psql -h 127.0.0.1 -U unitatlas -d unitatlas -tAc "SELECT count(*) FROM products" | grep -qx 0
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships')" | grep -qx t
       - name: Run .NET tests
         run: >-
           docker run --rm
