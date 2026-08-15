@@ -1,0 +1,104 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace UnitAtlas.Api.IntegrationTests;
+
+public sealed class PackagingTests
+{
+    private readonly HttpClient _client = new()
+    {
+        BaseAddress = new Uri(Environment.GetEnvironmentVariable("UNITATLAS_TEST_URL") ?? "http://host.docker.internal:8080")
+    };
+
+    [Fact]
+    public async Task Packaging_supports_nested_aggregation_idempotency_and_disaggregation()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..10];
+        var box = $"BOX-{suffix}";
+        var secondBox = $"BOX2-{suffix}";
+        var pallet = $"PAL-{suffix}";
+
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = box, type = "BOX" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = secondBox, type = "BOX" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET", sscc = "123456789012345675" })).StatusCode);
+
+        var key = $"packaging:add:{Guid.NewGuid()}";
+        var addUnit = new
+        {
+            action = "ADD",
+            idempotencyKey = key,
+            unitAtlasIds = new[] { "UA-KZ-2026-0000058221" }
+        };
+        var first = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{box}/aggregations", addUnit);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        var replay = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{box}/aggregations", addUnit);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        var replayJson = await replay.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(firstId, replayJson.GetProperty("id").GetGuid());
+        Assert.True(replayJson.GetProperty("duplicate").GetBoolean());
+
+        var duplicateParent = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{secondBox}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:duplicate:{Guid.NewGuid()}",
+            unitAtlasIds = new[] { "UA-KZ-2026-0000058221" }
+        });
+        Assert.Equal(HttpStatusCode.Conflict, duplicateParent.StatusCode);
+        Assert.Equal("CHILD_ALREADY_AGGREGATED", (await duplicateParent.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+
+        var nest = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{pallet}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:nest:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { box }
+        });
+        Assert.Equal(HttpStatusCode.Created, nest.StatusCode);
+
+        var cycle = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{box}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:cycle:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { pallet }
+        });
+        Assert.Equal(HttpStatusCode.Conflict, cycle.StatusCode);
+        Assert.Equal("AGGREGATION_CYCLE", (await cycle.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+
+        var boxState = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/logistic-units/{box}");
+        Assert.Contains(boxState.GetProperty("children").EnumerateArray(), child =>
+            child.GetProperty("code").GetString() == "UA-KZ-2026-0000058221");
+
+        var remove = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{box}/aggregations", new
+        {
+            action = "DELETE",
+            idempotencyKey = $"packaging:delete:{Guid.NewGuid()}",
+            unitAtlasIds = new[] { "UA-KZ-2026-0000058221" }
+        });
+        Assert.Equal(HttpStatusCode.Created, remove.StatusCode);
+
+        var afterRemove = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/logistic-units/{box}");
+        Assert.Empty(afterRemove.GetProperty("children").EnumerateArray());
+        Assert.True(afterRemove.GetProperty("events").GetArrayLength() >= 2);
+    }
+
+    [Fact]
+    public async Task Packaging_rejects_invalid_sscc_and_self_cycles()
+    {
+        var code = $"BOX-{Guid.NewGuid():N}";
+        var invalid = await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code, type = "BOX", sscc = "123" });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        Assert.Equal(HttpStatusCode.Created,
+            (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code, type = "BOX" })).StatusCode);
+        var cycle = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{code}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:self:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { code }
+        });
+        Assert.Equal(HttpStatusCode.Conflict, cycle.StatusCode);
+        Assert.Equal("AGGREGATION_CYCLE", (await cycle.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+    }
+}
