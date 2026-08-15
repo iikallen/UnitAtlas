@@ -34,4 +34,6 @@ public sealed record AggregationEventResponse(
     string ActorSubject,
     string SourceSystem,
     Guid? ReadPointId,
-    Guid? BusinessLocationId);
+    Guid? BusinessLocationId,
+    IReadOnlyCollection<string> UnitAtlasIds,
+    IReadOnlyCollection<string> LogisticUnitCodes);

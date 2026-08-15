@@ -1,4 +1,4 @@
-# ADR-0005: Packaging aggregation uses an immutable event ledger plus a current membership projection
+# ADR-0006: Packaging aggregation uses an immutable event ledger plus a current membership projection
 
 Status: Accepted for v0.2
 

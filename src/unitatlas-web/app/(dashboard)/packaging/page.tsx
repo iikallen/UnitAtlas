@@ -9,7 +9,7 @@ type LogisticUnit = {
   type: string;
   sscc?: string | null;
   children: { kind: string; code: string; product?: string | null; serial?: string | null }[];
-  events: { id: string; action: string; occurredAt: string; actorSubject: string; sourceSystem: string }[];
+  events: { id: string; action: string; occurredAt: string; actorSubject: string; sourceSystem: string; unitAtlasIds: string[]; logisticUnitCodes: string[] }[];
 };
 
 export default async function PackagingPage({ searchParams }: { searchParams: Promise<{ code?: string }> }) {
@@ -44,8 +44,8 @@ export default async function PackagingPage({ searchParams }: { searchParams: Pr
 
     {current && <section className="panel">
       <div className="panel-head"><div><p className="eyebrow">IMMUTABLE LEDGER</p><h2>История агрегации</h2></div><span>{current.events.length} событий</span></div>
-      <div className="table-wrap"><table><thead><tr><th>Действие</th><th>Время события</th><th>Источник</th><th>Actor</th></tr></thead><tbody>
-        {current.events.map(item => <tr key={item.id}><td>{item.action}</td><td>{new Date(item.occurredAt).toLocaleString("ru-RU")}</td><td>{item.sourceSystem}</td><td>{item.actorSubject}</td></tr>)}
+      <div className="table-wrap"><table><thead><tr><th>Действие</th><th>Содержимое</th><th>Время события</th><th>Источник</th><th>Actor</th></tr></thead><tbody>
+        {current.events.map(item => <tr key={item.id}><td>{item.action}</td><td>{[...item.unitAtlasIds, ...item.logisticUnitCodes].join(", ")}</td><td>{new Date(item.occurredAt).toLocaleString("ru-RU")}</td><td>{item.sourceSystem}</td><td>{item.actorSubject}</td></tr>)}
       </tbody></table></div>
     </section>}
 

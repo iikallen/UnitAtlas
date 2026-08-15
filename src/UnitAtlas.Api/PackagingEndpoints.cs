@@ -56,15 +56,22 @@ public static class PackagingEndpoints
             logisticUnit,
             new AuditEntry
             {
-                Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId,
-                ActorSubject = tenantContext.UserSubject, Action = "logistic_unit.created",
-                EntityType = "LogisticUnit", EntityId = logisticUnit.Id,
-                DataJson = JsonSerializer.Serialize(new { logisticUnit.Code, logisticUnit.Type, logisticUnit.Sscc }), CreatedAt = now
+                Id = Guid.CreateVersion7(),
+                TenantId = tenantContext.TenantId,
+                ActorSubject = tenantContext.UserSubject,
+                Action = "logistic_unit.created",
+                EntityType = "LogisticUnit",
+                EntityId = logisticUnit.Id,
+                DataJson = JsonSerializer.Serialize(new { logisticUnit.Code, logisticUnit.Type, logisticUnit.Sscc }),
+                CreatedAt = now
             },
             new OutboxMessage
             {
-                Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, Type = "logistic_unit.created",
-                PayloadJson = JsonSerializer.Serialize(new { logisticUnit.Id, logisticUnit.Code, logisticUnit.Type, logisticUnit.Sscc }), CreatedAt = now
+                Id = Guid.CreateVersion7(),
+                TenantId = tenantContext.TenantId,
+                Type = "logistic_unit.created",
+                PayloadJson = JsonSerializer.Serialize(new { logisticUnit.Id, logisticUnit.Code, logisticUnit.Type, logisticUnit.Sscc }),
+                CreatedAt = now
             });
         try
         {
@@ -100,12 +107,18 @@ public static class PackagingEndpoints
             orderby child.Code
             select new LogisticUnitChildResponse(child.Type, child.Code, null, null))
             .ToListAsync();
-        var events = await db.AggregationEvents.AsNoTracking()
+        var eventRows = await db.AggregationEvents.AsNoTracking()
             .Where(x => x.ParentLogisticUnitId == parent.Id)
             .OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Sequence)
-            .Select(x => new AggregationEventResponse(x.Id, x.Action, x.OccurredAt, x.RecordedAt, x.Sequence,
-                x.ActorSubject, x.SourceSystem, x.ReadPointId, x.BusinessLocationId))
             .ToListAsync();
+        var events = eventRows.Select(x =>
+        {
+            var children = JsonSerializer.Deserialize<AggregationChildren>(x.ChildrenJson)
+                ?? new AggregationChildren([], []);
+            return new AggregationEventResponse(x.Id, x.Action, x.OccurredAt, x.RecordedAt, x.Sequence,
+                x.ActorSubject, x.SourceSystem, x.ReadPointId, x.BusinessLocationId,
+                children.units, children.logisticUnits);
+        }).ToArray();
 
         return Results.Ok(new LogisticUnitContentResponse(parent.Code, parent.Type, parent.Sscc,
             unitChildren.Concat(logisticChildren).ToArray(), events));
@@ -119,8 +132,8 @@ public static class PackagingEndpoints
     {
         var action = request.Action?.Trim().ToUpperInvariant();
         var idempotencyKey = request.IdempotencyKey?.Trim();
-        var unitCodes = (request.UnitAtlasIds ?? Array.Empty<string>()).Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        var logisticCodes = (request.LogisticUnitCodes ?? Array.Empty<string>()).Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var unitCodes = PackagingRules.NormalizeCodes(request.UnitAtlasIds);
+        var logisticCodes = PackagingRules.NormalizeCodes(request.LogisticUnitCodes);
 
         if (!PackagingRules.IsSupportedAction(action))
             return Validation("action", $"Allowed: {string.Join(", ", PackagingRules.AggregationActions)}");
@@ -183,12 +196,20 @@ public static class PackagingEndpoints
             var now = DateTimeOffset.UtcNow;
             var aggregation = new AggregationEvent
             {
-                Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, ParentLogisticUnitId = parent.Id,
-                Action = action!, OccurredAt = request.OccurredAt ?? now, RecordedAt = now, Sequence = sequence,
-                ActorSubject = tenantContext.UserSubject, SourceSystem = request.SourceSystem?.Trim() ?? "unitatlas",
-                IdempotencyKey = idempotencyKey!, ReadPointId = request.ReadPointId,
-                BusinessLocationId = request.BusinessLocationId, CorrelationId = Guid.CreateVersion7(),
-                ChildrenJson = JsonSerializer.Serialize(new { units = unitCodes, logisticUnits = logisticCodes })
+                Id = Guid.CreateVersion7(),
+                TenantId = tenantContext.TenantId,
+                ParentLogisticUnitId = parent.Id,
+                Action = action!,
+                OccurredAt = request.OccurredAt ?? now,
+                RecordedAt = now,
+                Sequence = sequence,
+                ActorSubject = tenantContext.UserSubject,
+                SourceSystem = request.SourceSystem?.Trim() ?? "unitatlas",
+                IdempotencyKey = idempotencyKey!,
+                ReadPointId = request.ReadPointId,
+                BusinessLocationId = request.BusinessLocationId,
+                CorrelationId = Guid.CreateVersion7(),
+                ChildrenJson = JsonSerializer.Serialize(new AggregationChildren(unitCodes, logisticCodes))
             };
             db.AggregationEvents.Add(aggregation);
 
@@ -196,13 +217,21 @@ public static class PackagingEndpoints
             {
                 db.LogisticUnitContents.AddRange(units.Select(unit => new LogisticUnitContent
                 {
-                    Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, ParentLogisticUnitId = parent.Id,
-                    ChildUnitId = unit.Id, AddedByEventId = aggregation.Id, CreatedAt = now
+                    Id = Guid.CreateVersion7(),
+                    TenantId = tenantContext.TenantId,
+                    ParentLogisticUnitId = parent.Id,
+                    ChildUnitId = unit.Id,
+                    AddedByEventId = aggregation.Id,
+                    CreatedAt = now
                 }));
                 db.LogisticUnitContents.AddRange(logistics.Select(child => new LogisticUnitContent
                 {
-                    Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, ParentLogisticUnitId = parent.Id,
-                    ChildLogisticUnitId = child.Id, AddedByEventId = aggregation.Id, CreatedAt = now
+                    Id = Guid.CreateVersion7(),
+                    TenantId = tenantContext.TenantId,
+                    ParentLogisticUnitId = parent.Id,
+                    ChildLogisticUnitId = child.Id,
+                    AddedByEventId = aggregation.Id,
+                    CreatedAt = now
                 }));
             }
             else
@@ -213,20 +242,34 @@ public static class PackagingEndpoints
             db.AddRange(
                 new IdempotencyRecord
                 {
-                    Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, Key = idempotencyKey!, Operation = operation,
-                    RequestHash = requestHash, ResourceId = aggregation.Id, ResponseStatus = StatusCodes.Status201Created,
-                    CreatedAt = now, ExpiresAt = now.AddHours(24)
+                    Id = Guid.CreateVersion7(),
+                    TenantId = tenantContext.TenantId,
+                    Key = idempotencyKey!,
+                    Operation = operation,
+                    RequestHash = requestHash,
+                    ResourceId = aggregation.Id,
+                    ResponseStatus = StatusCodes.Status201Created,
+                    CreatedAt = now,
+                    ExpiresAt = now.AddHours(24)
                 },
                 new AuditEntry
                 {
-                    Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, ActorSubject = tenantContext.UserSubject,
-                    Action = "aggregation.recorded", EntityType = "AggregationEvent", EntityId = aggregation.Id,
-                    DataJson = JsonSerializer.Serialize(new { parent.Code, aggregation.Action, unitCodes, logisticCodes }), CreatedAt = now
+                    Id = Guid.CreateVersion7(),
+                    TenantId = tenantContext.TenantId,
+                    ActorSubject = tenantContext.UserSubject,
+                    Action = "aggregation.recorded",
+                    EntityType = "AggregationEvent",
+                    EntityId = aggregation.Id,
+                    DataJson = JsonSerializer.Serialize(new { parent.Code, aggregation.Action, unitCodes, logisticCodes }),
+                    CreatedAt = now
                 },
                 new OutboxMessage
                 {
-                    Id = Guid.CreateVersion7(), TenantId = tenantContext.TenantId, Type = "aggregation.recorded",
-                    PayloadJson = JsonSerializer.Serialize(new { aggregation.Id, parent.Code, aggregation.Action, unitCodes, logisticCodes }), CreatedAt = now
+                    Id = Guid.CreateVersion7(),
+                    TenantId = tenantContext.TenantId,
+                    Type = "aggregation.recorded",
+                    PayloadJson = JsonSerializer.Serialize(new { aggregation.Id, parent.Code, aggregation.Action, unitCodes, logisticCodes }),
+                    CreatedAt = now
                 });
 
             await db.SaveChangesAsync();
@@ -291,4 +334,6 @@ public static class PackagingEndpoints
         await transaction.RollbackAsync();
         return Problem(code, title, status);
     }
+
+    private sealed record AggregationChildren(string[] units, string[] logisticUnits);
 }

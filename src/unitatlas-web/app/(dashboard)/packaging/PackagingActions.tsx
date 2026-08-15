@@ -36,9 +36,10 @@ export default function PackagingActions({ currentCode }: { currentCode?: string
   async function aggregate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentCode) return;
+    const formElement = event.currentTarget;
     setBusy(true);
     setError("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     const unitAtlasIds = String(form.get("unitAtlasIds") ?? "")
       .split(/[\s,;]+/).map(value => value.trim()).filter(Boolean);
     const logisticUnitCodes = String(form.get("logisticUnitCodes") ?? "")
@@ -59,14 +60,14 @@ export default function PackagingActions({ currentCode }: { currentCode?: string
       setError(problem.title ?? "Операция агрегации не выполнена.");
       return;
     }
-    event.currentTarget.reset();
+    formElement.reset();
     router.refresh();
   }
 
   return <>
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel">
-      <div className="panel-head"><div><p className="eyebrow">ЛОГИСТИЧЕСКАЯ ЕДИНИЦА</p><h2>Создать короб или паллету</h2></div></div>
+      <div className="panel-head"><div><p className="eyebrow">ЛОГИСТИЧЕСКАЯ ЕДИНИЦА</p><h2>Создать короб, паллету или контейнер</h2></div></div>
       <form className="dialog" onSubmit={createLogisticUnit}>
         <label>Код<input name="code" required placeholder="BOX-2026-0001" /></label>
         <label>Тип<select name="type" defaultValue="BOX"><option value="BOX">BOX</option><option value="PALLET">PALLET</option><option value="CONTAINER">CONTAINER</option></select></label>

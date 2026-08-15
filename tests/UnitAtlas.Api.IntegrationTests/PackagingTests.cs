@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using UnitAtlas.Application.Packaging;
+using UnitAtlas.Contracts;
 
 namespace UnitAtlas.Api.IntegrationTests;
 
@@ -81,6 +83,10 @@ public sealed class PackagingTests
         var afterRemove = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/logistic-units/{box}");
         Assert.Empty(afterRemove.GetProperty("children").EnumerateArray());
         Assert.True(afterRemove.GetProperty("events").GetArrayLength() >= 2);
+        Assert.Contains(afterRemove.GetProperty("events").EnumerateArray(), item =>
+            item.GetProperty("action").GetString() == "DELETE"
+            && item.GetProperty("unitAtlasIds").EnumerateArray().Any(child =>
+                child.GetString() == "UA-KZ-2026-0000058221"));
     }
 
     [Fact]
@@ -125,8 +131,22 @@ public sealed class PackagingTests
         });
 
         var responses = await Task.WhenAll(leftToRight, rightToLeft);
-        Assert.Single(responses.Where(response => response.StatusCode == HttpStatusCode.Created));
-        var conflict = Assert.Single(responses.Where(response => response.StatusCode == HttpStatusCode.Conflict));
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+        var conflict = Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
         Assert.Equal("AGGREGATION_CYCLE", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void Aggregation_request_hash_is_unambiguous_and_uses_normalized_children()
+    {
+        var splitOne = Request(["a,b", "c"]);
+        var splitTwo = Request(["a", "b,c"]);
+        Assert.NotEqual(PackagingRules.ComputeRequestHash("BOX", splitOne), PackagingRules.ComputeRequestHash("BOX", splitTwo));
+
+        var noisy = Request([" c ", null!, "a,b", "c"]);
+        Assert.Equal(PackagingRules.ComputeRequestHash("BOX", splitOne), PackagingRules.ComputeRequestHash(" BOX ", noisy));
+
+        static AggregationRequest Request(IReadOnlyCollection<string> children) =>
+            new("ADD", "ignored", children, null, null, null, null, "unitatlas");
     }
 }

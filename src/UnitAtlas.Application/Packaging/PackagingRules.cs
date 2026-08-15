@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using UnitAtlas.Contracts;
 
 namespace UnitAtlas.Application.Packaging;
@@ -14,6 +15,10 @@ public static class PackagingRules
 
     public static bool IsSupportedAction(string? value) =>
         AggregationActions.Contains(value?.Trim().ToUpperInvariant(), StringComparer.Ordinal);
+
+    public static string[] NormalizeCodes(IEnumerable<string?>? values) =>
+        (values ?? []).Select(x => x?.Trim()).Where(x => !string.IsNullOrEmpty(x))
+            .Select(x => x!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
     public static bool IsValidSscc(string? value)
     {
@@ -32,17 +37,17 @@ public static class PackagingRules
 
     public static string ComputeRequestHash(string parentCode, AggregationRequest request)
     {
-        var units = (request.UnitAtlasIds ?? Array.Empty<string>()).Select(x => x.Trim()).Order(StringComparer.Ordinal);
-        var logistics = (request.LogisticUnitCodes ?? Array.Empty<string>()).Select(x => x.Trim()).Order(StringComparer.Ordinal);
-        var canonical = string.Join('\n',
-            parentCode.Trim(),
-            request.Action?.Trim().ToUpperInvariant(),
-            string.Join(',', units),
-            string.Join(',', logistics),
-            request.OccurredAt?.ToUniversalTime().ToString("O"),
+        var canonical = JsonSerializer.Serialize(new
+        {
+            ParentCode = parentCode.Trim(),
+            Action = request.Action?.Trim().ToUpperInvariant(),
+            UnitAtlasIds = NormalizeCodes(request.UnitAtlasIds),
+            LogisticUnitCodes = NormalizeCodes(request.LogisticUnitCodes),
+            OccurredAt = request.OccurredAt?.ToUniversalTime().ToString("O"),
             request.ReadPointId,
             request.BusinessLocationId,
-            request.SourceSystem?.Trim());
+            SourceSystem = request.SourceSystem?.Trim()
+        });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 }
