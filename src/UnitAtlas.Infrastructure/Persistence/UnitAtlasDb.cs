@@ -24,6 +24,9 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     public DbSet<PublicPassportConfig> PublicPassportConfigs => Set<PublicPassportConfig>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
+    public DbSet<LogisticUnit> LogisticUnits => Set<LogisticUnit>();
+    public DbSet<AggregationEvent> AggregationEvents => Set<AggregationEvent>();
+    public DbSet<LogisticUnitContent> LogisticUnitContents => Set<LogisticUnitContent>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -135,6 +138,50 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
 
         TenantEntity<ExternalReference>(model, "external_references");
         model.Entity<ExternalReference>().HasIndex(x => new { x.TenantId, x.System, x.EntityType, x.Value }).IsUnique();
+
+        TenantEntity<LogisticUnit>(model, "logistic_units");
+        model.Entity<LogisticUnit>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+        model.Entity<LogisticUnit>().HasIndex(x => new { x.TenantId, x.Sscc }).IsUnique().HasFilter("\"Sscc\" IS NOT NULL");
+
+        TenantEntity<AggregationEvent>(model, "aggregation_events");
+        model.Entity<AggregationEvent>().Property(x => x.ChildrenJson).HasColumnType("jsonb");
+        model.Entity<AggregationEvent>().HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique();
+        model.Entity<AggregationEvent>().HasIndex(x => new { x.TenantId, x.ParentLogisticUnitId, x.Sequence }).IsUnique();
+        model.Entity<AggregationEvent>().HasOne<LogisticUnit>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ParentLogisticUnitId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<AggregationEvent>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ReadPointId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<AggregationEvent>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.BusinessLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<LogisticUnitContent>(model, "logistic_unit_contents");
+        model.Entity<LogisticUnitContent>().ToTable("logistic_unit_contents", table => table.HasCheckConstraint(
+            "CK_logistic_unit_contents_exactly_one_child",
+            "(\"ChildUnitId\" IS NOT NULL AND \"ChildLogisticUnitId\" IS NULL) OR (\"ChildUnitId\" IS NULL AND \"ChildLogisticUnitId\" IS NOT NULL)"));
+        model.Entity<LogisticUnitContent>().HasIndex(x => new { x.TenantId, x.ChildUnitId }).IsUnique().HasFilter("\"ChildUnitId\" IS NOT NULL");
+        model.Entity<LogisticUnitContent>().HasIndex(x => new { x.TenantId, x.ChildLogisticUnitId }).IsUnique().HasFilter("\"ChildLogisticUnitId\" IS NOT NULL");
+        model.Entity<LogisticUnitContent>().HasOne<LogisticUnit>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ParentLogisticUnitId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<LogisticUnitContent>().HasOne<TrackedUnit>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ChildUnitId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<LogisticUnitContent>().HasOne<LogisticUnit>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ChildLogisticUnitId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<LogisticUnitContent>().HasOne<AggregationEvent>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.AddedByEventId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private void TenantEntity<TEntity>(ModelBuilder model, string table) where TEntity : class
