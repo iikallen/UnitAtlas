@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api";
+const API = "/bff";
 const eventTypes = ["QUALITY_PASSED", "PACKED", "MOVED_TO_WAREHOUSE", "SHIPPED", "RECEIVED"];
 
 export default function EventActions({ atlasId }: { atlasId: string }) {

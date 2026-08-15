@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api";
+const API = "/bff";
 
 type Unit = {
   atlasId: string; serial: string; lot: string; product: string; sku: string;
@@ -16,6 +17,7 @@ type Dashboard = {
 type Product = { id: string; sku: string; name: string; gtin: string };
 
 export default function Home() {
+  const router = useRouter();
   const [dashboard, setDashboard] = useState<Dashboard>();
   const [products, setProducts] = useState<Product[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -36,6 +38,10 @@ export default function Home() {
         fetch(`${API}/products`, { cache: "no-store" }),
         fetch(`${API}/units?query=${encodeURIComponent(search)}`, { cache: "no-store" })
       ]);
+      if ([dashboardResponse, productsResponse, unitsResponse].some(response => response.status === 401)) {
+        router.push("/auth/login");
+        return;
+      }
       if (!dashboardResponse.ok || !productsResponse.ok || !unitsResponse.ok) throw new Error("API unavailable");
       setDashboard(await dashboardResponse.json());
       setProducts(await productsResponse.json());
@@ -45,9 +51,12 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
   useEffect(() => () => streamRef.current?.getTracks().forEach(track => track.stop()), []);
 
   async function scan() {
@@ -108,9 +117,10 @@ export default function Home() {
         <div className="brand"><span>U</span><strong>UNITATLAS</strong></div>
         <nav>
           <a className="active" href="#overview">Обзор</a>
-          <a href="#units">Изделия</a>
-          <a href="#products">Продукция</a>
-          <a href="#events">События</a>
+          <Link href="/units">Изделия</Link>
+          <Link href="/products">Продукция</Link>
+          <Link href="/events">События</Link>
+          <Link href="/settings">Настройки</Link>
         </nav>
         <div className="tenant"><span>AM</span><div><strong>Atlas Manufacturing</strong><small>Factory #1</small></div></div>
       </aside>

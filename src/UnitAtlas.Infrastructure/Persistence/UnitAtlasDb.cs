@@ -128,7 +128,6 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
         model.Entity<PublicPassportConfig>().HasOne<TrackedUnit>().WithOne()
             .HasForeignKey<PublicPassportConfig>(x => new { x.TenantId, x.UnitId })
             .HasPrincipalKey<TrackedUnit>(x => new { x.TenantId, x.Id });
-        model.Entity<PublicPassportConfig>().HasQueryFilter(x => x.TenantId == CurrentTenantId);
 
         TenantEntity<OutboxMessage>(model, "outbox_messages");
         model.Entity<OutboxMessage>().Property(x => x.PayloadJson).HasColumnType("jsonb");

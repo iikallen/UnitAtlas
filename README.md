@@ -10,6 +10,7 @@
 - generic OIDC bearer validation, membership roles/permissions и PostgreSQL RLS;
 - Site/Location/Lot, extensible identifiers, audit, outbox и public passport config;
 - request-hash idempotency с 409 при повторном key и другом body;
+- versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
 - ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
 - unit- и HTTP integration-тесты в CI.
 
@@ -30,12 +31,18 @@ docker compose up --build --wait
 - OpenAPI: http://localhost:8080/openapi/v1.json
 - liveness: http://localhost:8080/health/live
 - readiness: http://localhost:8080/health/ready
+- internal passport: http://localhost:3000/u/UA-KZ-2026-0000058219
+- public passport: http://localhost:3000/p/demo-x200-58219
 
 Compose применяет миграции и добавляет demo-данные. В остальных окружениях обе операции выключены по умолчанию.
 
 Compose также включает development-only authentication: запрос без заголовков выполняется как demo Owner. Для negative tests доступны `X-Demo-Subject` и `X-Demo-Tenant`. Эта схема регистрируется только при одновременных `ASPNETCORE_ENVIRONMENT=Development` и `Authentication__DemoMode=true`.
 
 В production API требует настройки `Authentication__Authority` и `Authentication__Audience`, валидирует OIDC access token и ожидает claims `sub` и `tenant_id`. Пользователь должен иметь соответствующую запись `TenantMembership`.
+
+Next.js BFF в production требует `APP_BASE_URL`, `OIDC_AUTHORITY`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` и случайный `AUTH_SESSION_SECRET`. Authorization Code + PKCE выполняется только server-side; access token хранится в зашифрованной `HttpOnly` cookie. Browser обращается к `/bff/*`, а не к API origin.
+
+Internal API: `/api/v1/*`. Anonymous API: только `/api/public/passports/{publicId}`. Public response не содержит actor, внутренних location, tenant, lot, SKU или ERP identifiers.
 
 ## Проверка
 
@@ -67,9 +74,9 @@ dotnet tool run dotnet-ef migrations script InitialArchitecture 0 --project src/
 
 Факт: API имеет generic OIDC bearer validation, permission policies, tenant context, EF query filters, composite FK и forced PostgreSQL RLS. Runtime DB-role не является superuser.
 
-Риск: внешний Identity Provider и production memberships не создаются репозиторием автоматически, а Next.js ещё не реализует confidential OIDC/BFF session. Development demo auth нельзя включать в публичном окружении.
+Риск: внешний Identity Provider, client registration и production memberships не создаются репозиторием автоматически. BFF пока не обновляет истёкший access token через refresh token; после expiry пользователь входит повторно. Development demo auth нельзя включать в публичном окружении.
 
-Минимальный следующий шаг: перевести Next.js на confidential OIDC/BFF и отделить anonymous public passport от internal API. Это исключит privileged browser→API доступ.
+Минимальный следующий шаг: добавить ProblemDetails, rate limiting, security headers, structured logging и OpenTelemetry, затем провести backup/restore rehearsal.
 
 ## Rollback
 
