@@ -19,7 +19,7 @@ jobs:
           -v "${{ github.workspace }}:/work"
           -w /work
           mcr.microsoft.com/dotnet/sdk:10.0
-          sh -lc "dotnet restore UnitAtlas.slnx && dotnet tool restore && dotnet tool run dotnet-ef migrations add AddPackagingAggregation --project src/UnitAtlas.Infrastructure --startup-project src/UnitAtlas.Infrastructure --output-dir Persistence/Migrations --no-build"
+          sh -lc "dotnet restore UnitAtlas.slnx && dotnet tool restore && dotnet tool run dotnet-ef migrations add AddPackagingAggregation --project src/UnitAtlas.Infrastructure --startup-project src/UnitAtlas.Infrastructure --output-dir Persistence/Migrations"
       - name: Commit generated migration
         run: |
           git config user.name "github-actions[bot]"
