@@ -17,8 +17,12 @@ public sealed class ApiSmokeTests
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/health/ready")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/dashboard")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/sites")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/locations")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/dashboard")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/units/UA-KZ-2026-0000058219")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/passports/UA-KZ-2026-0000058219")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/units/UA-KZ-2026-0000058219/events")).StatusCode);
         var publicPassport = await _client.GetFromJsonAsync<JsonElement>("/api/public/passports/demo-x200-58219");
         Assert.Equal("verified", publicPassport.GetProperty("authenticity").GetString());
         Assert.False(publicPassport.ToString().Contains("actor", StringComparison.OrdinalIgnoreCase));
@@ -40,6 +44,7 @@ public sealed class ApiSmokeTests
         var response = await _client.PostAsJsonAsync("/api/v1/units/UA-KZ-2026-0000058219/events", request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var firstId = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        Assert.Equal('7', firstId.ToString()[14]);
 
         var replay = await _client.PostAsJsonAsync("/api/v1/units/UA-KZ-2026-0000058219/events", request);
         Assert.Equal(HttpStatusCode.Created, replay.StatusCode);

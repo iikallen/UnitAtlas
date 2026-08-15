@@ -174,6 +174,17 @@ api.MapGet("/products", async (UnitAtlasDb db) => Results.Ok(await db.Products
     .Select(x => new { x.Id, x.Sku, x.Name, x.Gtin })
     .ToListAsync())).RequireAuthorization(Permissions.UnitsRead);
 
+api.MapGet("/sites", async (UnitAtlasDb db) => Results.Ok(await db.Sites.AsNoTracking()
+    .OrderBy(site => site.Name)
+    .Select(site => new { site.Id, site.Code, site.Name })
+    .ToListAsync())).RequireAuthorization(Permissions.UnitsRead);
+
+api.MapGet("/locations", async (Guid? siteId, UnitAtlasDb db) => Results.Ok(await db.Locations.AsNoTracking()
+    .Where(location => siteId == null || location.SiteId == siteId)
+    .OrderBy(location => location.Name)
+    .Select(location => new { location.Id, location.SiteId, location.ParentLocationId, location.Code, location.Name, location.Type })
+    .ToListAsync())).RequireAuthorization(Permissions.UnitsRead);
+
 api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db, ITenantContext tenantContext) =>
 {
     if (string.IsNullOrWhiteSpace(request.Sku) || string.IsNullOrWhiteSpace(request.Name)
@@ -254,25 +265,17 @@ api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
     return Results.Created($"/api/v1/units/{unit.AtlasId}", new { unit.AtlasId });
 }).RequireAuthorization(Permissions.UnitsCreate);
 
-api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
+api.MapGet("/units/{atlasId}", InternalPassport)
+    .RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("unit-lookup");
+api.MapGet("/passports/{atlasId}", InternalPassport)
+    .RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("unit-lookup");
+
+api.MapGet("/units/{atlasId}/events", async (string atlasId, UnitAtlasDb db) =>
 {
-    var unit = await db.Units.AsNoTracking().Include(x => x.Product).SingleOrDefaultAsync(x => x.AtlasId == atlasId);
-    if (unit is null) return Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound);
-    var state = await db.UnitStates.AsNoTracking().SingleAsync(x => x.UnitId == unit.Id);
-    var events = await db.TraceEvents.AsNoTracking().Where(x => x.UnitId == unit.Id)
-        .OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Sequence)
-        .Select(x => new { x.Id, x.EventType, x.Location, x.Actor, x.OccurredAt, x.RecordedAt, x.Sequence })
-        .ToListAsync();
-    return Results.Ok(new
-    {
-        unit.AtlasId,
-        unit.Serial,
-        unit.Lot,
-        unit.ManufacturedAt,
-        product = new { unit.Product.Name, unit.Product.Sku, unit.Product.Gtin },
-        state = new { state.Status, state.Location, state.UpdatedAt },
-        events
-    });
+    var unitId = await db.Units.Where(unit => unit.AtlasId == atlasId).Select(unit => (Guid?)unit.Id).SingleOrDefaultAsync();
+    return unitId is null
+        ? Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound)
+        : Results.Ok(await EventQuery(db, unitId.Value).ToListAsync());
 }).RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("unit-lookup");
 
 api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest request, UnitAtlasDb db, ITenantContext tenantContext, ILogger<Program> logger) =>
@@ -383,9 +386,35 @@ static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, s
         row.Product.Sku, row.Product.Gtin, row.State.Status, row.State.Location, row.State.UpdatedAt));
 }
 
+static IQueryable<TraceEventResponse> EventQuery(UnitAtlasDb db, Guid unitId) => db.TraceEvents.AsNoTracking()
+    .Where(trace => trace.UnitId == unitId)
+    .OrderByDescending(trace => trace.OccurredAt)
+    .ThenByDescending(trace => trace.Sequence)
+    .Select(trace => new TraceEventResponse(trace.Id, trace.EventType, trace.Location, trace.Actor, trace.ActorSubject,
+        trace.SourceSystem, trace.OccurredAt, trace.RecordedAt, trace.Sequence, trace.ReadPointId,
+        trace.BusinessLocationId, trace.BusinessStep, trace.Disposition));
+
+static async Task<IResult> InternalPassport(string atlasId, UnitAtlasDb db)
+{
+    var unit = await db.Units.AsNoTracking().Include(tracked => tracked.Product)
+        .SingleOrDefaultAsync(tracked => tracked.AtlasId == atlasId);
+    if (unit is null) return Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound);
+    var state = await db.UnitStates.AsNoTracking().SingleAsync(current => current.UnitId == unit.Id);
+    return Results.Ok(new
+    {
+        unit.AtlasId,
+        unit.Serial,
+        unit.Lot,
+        unit.ManufacturedAt,
+        product = new { unit.Product.Name, unit.Product.Sku, unit.Product.Gtin },
+        state = new { state.Status, state.Location, state.UpdatedAt },
+        events = await EventQuery(db, unit.Id).ToListAsync()
+    });
+}
+
 static TraceEvent NewEvent(TrackedUnit unit, string type, string location, string key, string actor, DateTimeOffset occurredAt, long sequence) => new()
 {
-    Id = Guid.NewGuid(),
+    Id = Guid.CreateVersion7(),
     TenantId = unit.TenantId,
     UnitId = unit.Id,
     EventType = type,

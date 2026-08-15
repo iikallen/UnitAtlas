@@ -25,6 +25,9 @@ jobs:
           docker compose exec -T -e PGPASSWORD=unitatlas_dev db psql -h 127.0.0.1 -U unitatlas -d unitatlas -tAc "SELECT count(*) FROM products" | grep -qx 0
           docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships','audit_entries','external_references','idempotency_records','locations','lots','outbox_messages','product_identifiers','sites','unit_identifiers')" | grep -qx t
           docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT relrowsecurity AND NOT relforcerowsecurity FROM pg_class WHERE relname='public_passport_configs'" | grep -qx t
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=4 AND bool_and(cmd IN ('SELECT','INSERT')) FROM pg_policies WHERE tablename IN ('trace_events','audit_entries')" | grep -qx t
+          if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'UPDATE trace_events SET "Actor" = "Actor" WHERE false'; then exit 1; fi
+          if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'DELETE FROM audit_entries WHERE false'; then exit 1; fi
       - name: Build and run .NET tests
         run: >-
           docker run --rm
@@ -39,6 +42,10 @@ jobs:
           curl --fail --silent http://localhost:3000 >/dev/null
           curl --fail --silent http://localhost:3000/bff/dashboard >/dev/null
           curl --fail --silent --dump-header - --output /dev/null 'http://localhost:3000/bff/units?limit=2' | grep -qi 'x-next-cursor:'
+          curl --fail --silent http://localhost:8080/api/v1/sites >/dev/null
+          curl --fail --silent http://localhost:8080/api/v1/locations >/dev/null
+          curl --fail --silent http://localhost:8080/api/v1/units/UA-KZ-2026-0000058219/events >/dev/null
+          curl --fail --silent http://localhost:8080/api/v1/passports/UA-KZ-2026-0000058219 >/dev/null
           curl --fail --silent http://localhost:3000/p/demo-x200-58219 | grep -q "ПУБЛИЧНЫЙ ЦИФРОВОЙ ПАСПОРТ"
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/dashboard)" = "404"
           public_json="$(curl --fail --silent http://localhost:8080/api/public/passports/demo-x200-58219)"

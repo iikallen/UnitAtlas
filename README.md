@@ -4,11 +4,12 @@
 
 ## Текущее состояние
 
-- каталог продуктов, изделия и append-only журнал событий;
+- каталог продуктов, изделия и DB-enforced append-only журнал событий/audit;
 - детерминированная проекция текущего состояния по `(occurred_at, sequence)`;
 - tenant-aware ключи и связи в PostgreSQL;
 - generic OIDC bearer validation, membership roles/permissions и PostgreSQL RLS;
 - Site/Location/Lot, extensible identifiers, audit, outbox и public passport config;
+- integration port + versioned webhook envelope без 1С/ИС МПТ внутри core;
 - request-hash idempotency с 409 при повторном key и другом body;
 - versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
 - Problem Details, cursor pagination, rate limits, security headers и JSON logs;
@@ -45,6 +46,8 @@ Compose также включает development-only authentication: запро�
 Next.js BFF в production требует `APP_BASE_URL`, `OIDC_AUTHORITY`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` и случайный `AUTH_SESSION_SECRET`. Authorization Code + PKCE выполняется только server-side; access token хранится в зашифрованной `HttpOnly` cookie. Browser обращается к `/bff/*`, а не к API origin.
 
 Internal API: `/api/v1/*`. Anonymous API: только `/api/public/passports/{publicId}`. Public response не содержит actor, внутренних location, tenant, lot, SKU или ERP identifiers.
+
+Read contracts: `/api/v1/sites`, `/api/v1/locations`, `/api/v1/units/{atlasId}/events` и `/api/v1/passports/{atlasId}`. Новые TraceEvent получают UUIDv7; correction выполняется новым событием, UPDATE/DELETE/TRUNCATE ledger и audit запрещены DB triggers.
 
 ## Проверка
 

@@ -34,9 +34,9 @@ docker compose exec -T db pg_restore -U unitatlas_admin --role=unitatlas `
   --no-owner --no-acl -d unitatlas_restore_rehearsal /tmp/unitatlas.dump
 ```
 
-Сравнить counts ключевых таблиц и `__EFMigrationsHistory`, forced RLS для 14 tenant-таблиц и нулевую видимость runtime role без tenant context. Только после успешной проверки удалить временную БД и dump.
+Сравнить counts ключевых таблиц и `__EFMigrationsHistory`, forced RLS для 14 tenant-таблиц, четыре SELECT/INSERT policies и два append-only triggers, а также нулевую видимость runtime role без tenant context. Только после успешной проверки удалить временную БД и dump.
 
-Rehearsal 2026-08-16: source и restore совпали `[units=4, trace_events=13, audit_entries=6, outbox_messages=6, migrations=4]`; 14/14 tenant-таблиц сохранили forced RLS; runtime role без tenant context увидела `0` units. Временная БД и dump удалены, рабочий volume не изменялся.
+Rehearsal 2026-08-16 на чистом seed: source и restore совпали `[units=4, trace_events=7, audit_entries=0, outbox_messages=0, migrations=5]`; 14/14 tenant-таблиц сохранили forced RLS, четыре ledger/audit policies и два mutation-blocking triggers восстановлены; runtime role без tenant context увидела `0` units. Временная БД и dump удалены, рабочий volume не изменялся.
 
 ## Incident and rollback
 
