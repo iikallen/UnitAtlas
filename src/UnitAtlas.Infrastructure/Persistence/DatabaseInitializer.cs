@@ -43,7 +43,27 @@ public static class DatabaseInitializer
             Gtin = "04871234567890",
             CreatedAt = now
         };
-        db.AddRange(tenant, membership, product);
+        var seedLot = new Lot
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            ProductId = product.Id,
+            Code = "LOT-260815-A",
+            ManufacturedAt = now.AddDays(-1)
+        };
+        var site = new Site { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "FACTORY-1", Name = "Almaty Factory" };
+        var seedLocation = new Location
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenant.Id,
+            SiteId = site.Id,
+            Code = "LINE-3",
+            Name = "Production Line 3",
+            Type = "production_line"
+        };
+        db.AddRange(tenant, membership, product, seedLot, site, seedLocation,
+            new ProductIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, ProductId = product.Id, Type = "GTIN", Value = product.Gtin },
+            new ProductIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, ProductId = product.Id, Type = "SKU", Value = product.Sku });
 
         var seeds = new[]
         {
@@ -61,13 +81,18 @@ public static class DatabaseInitializer
                 AtlasId = atlasId,
                 Serial = serial,
                 Lot = lot,
+                LotId = seedLot.Id,
                 ManufacturedAt = now.AddDays(-1),
                 CreatedAt = now.AddDays(-1)
             };
             var manufactured = NewEvent(unit, "MANUFACTURED", "Factory #1", $"seed:{unit.Id}:manufactured", "system", unit.ManufacturedAt, 1);
             var latest = NewEvent(unit, type, location, $"seed:{unit.Id}:{type}", "demo.operator", now.AddHours(-1), 2);
+            manufactured.ReadPointId = seedLocation.Id;
+            latest.BusinessLocationId = seedLocation.Id;
             TraceEventProjection.TryGetStatus(type, out var status);
-            db.AddRange(unit, manufactured, latest, NewState(unit, latest, status));
+            db.AddRange(unit, manufactured, latest, NewState(unit, latest, status),
+                new UnitIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, UnitId = unit.Id, Type = "ATLAS_ID", Value = unit.AtlasId },
+                new UnitIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, UnitId = unit.Id, Type = "SERIAL", Value = unit.Serial });
         }
         await db.SaveChangesAsync(cancellationToken);
 
@@ -89,6 +114,14 @@ public static class DatabaseInitializer
             Gtin = "04870000000001",
             CreatedAt = now
         };
+        var secondLot = new Lot
+        {
+            Id = Guid.NewGuid(),
+            TenantId = secondTenant.Id,
+            ProductId = secondProduct.Id,
+            Code = "PRIVATE-LOT",
+            ManufacturedAt = now.AddDays(-1)
+        };
         tenantContext.Initialize(secondTenant.Id, "second.viewer", TenantRole.Viewer);
         var secondUnit = new TrackedUnit
         {
@@ -98,11 +131,14 @@ public static class DatabaseInitializer
             AtlasId = "UA-KZ-2026-PRIVATE0001",
             Serial = "PRIVATE-0001",
             Lot = "PRIVATE-LOT",
+            LotId = secondLot.Id,
             ManufacturedAt = now.AddDays(-1),
             CreatedAt = now.AddDays(-1)
         };
         var secondEvent = NewEvent(secondUnit, "MANUFACTURED", "Private factory", $"seed:{secondUnit.Id}:manufactured", "system", secondUnit.ManufacturedAt, 1);
-        db.AddRange(secondTenant, secondMembership, secondProduct, secondUnit, secondEvent, NewState(secondUnit, secondEvent, "Manufactured"));
+        db.AddRange(secondTenant, secondMembership, secondProduct, secondLot, secondUnit, secondEvent, NewState(secondUnit, secondEvent, "Manufactured"),
+            new ProductIdentifier { Id = Guid.NewGuid(), TenantId = secondTenant.Id, ProductId = secondProduct.Id, Type = "GTIN", Value = secondProduct.Gtin },
+            new UnitIdentifier { Id = Guid.NewGuid(), TenantId = secondTenant.Id, UnitId = secondUnit.Id, Type = "ATLAS_ID", Value = secondUnit.AtlasId });
         await db.SaveChangesAsync(cancellationToken);
         tenantContext.Clear();
     }
