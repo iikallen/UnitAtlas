@@ -1,8 +1,13 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { saveFlow } from "../../../lib/auth";
+import { takeLoginPermit } from "../../../lib/rate-limit";
 
 export async function GET(request: NextRequest) {
+  if (!takeLoginPermit()) return NextResponse.json({
+    type: "about:blank", title: "Too Many Requests", status: 429,
+    code: "RATE_LIMITED", traceId: randomUUID()
+  }, { status: 429, headers: { "Retry-After": "60" } });
   if (process.env.AUTH_DEMO_MODE === "true") return NextResponse.redirect(new URL("/", request.url));
   const authority = process.env.OIDC_AUTHORITY ?? "";
   const clientId = process.env.OIDC_CLIENT_ID ?? "";

@@ -1,23 +1,85 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Npgsql;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using UnitAtlas.Application.Traceability;
 using UnitAtlas.Application.Tenancy;
+using UnitAtlas.Api;
 using UnitAtlas.Api.Auth;
+using UnitAtlas.Api.Observability;
 using UnitAtlas.Contracts;
 using UnitAtlas.Domain;
 using UnitAtlas.Infrastructure;
 using UnitAtlas.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options => options.IncludeScopes = true);
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddUnitAtlasSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddOpenApi();
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+{
+    context.ProblemDetails.Extensions.TryAdd("code", ErrorCode(context.ProblemDetails.Status));
+    context.ProblemDetails.Extensions["traceId"] = Activity.Current?.TraceId.ToString() ?? context.HttpContext.TraceIdentifier;
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "60";
+        await Results.Problem(statusCode: StatusCodes.Status429TooManyRequests, title: "Too Many Requests",
+            extensions: new Dictionary<string, object?> { ["code"] = "RATE_LIMITED" })
+            .ExecuteAsync(context.HttpContext);
+    };
+    options.AddFixedWindowLimiter("public-passport", limiter => ConfigureLimiter(limiter, 60));
+    options.AddFixedWindowLimiter("unit-search", limiter => ConfigureLimiter(limiter, 60));
+    options.AddFixedWindowLimiter("unit-lookup", limiter => ConfigureLimiter(limiter, 120));
+    options.AddFixedWindowLimiter("event-ingest", limiter => ConfigureLimiter(limiter, 60));
+});
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration["Cors:Origin"] ?? "http://localhost:3000")
         .AllowAnyHeader().AllowAnyMethod()));
+var exportOtlp = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(Telemetry.Name))
+    .WithTracing(tracing =>
+    {
+        tracing.AddSource(Telemetry.Name)
+            .AddAspNetCoreInstrumentation(options => options.Filter = context => !context.Request.Path.StartsWithSegments("/health/live"))
+            .AddHttpClientInstrumentation()
+            .AddNpgsql();
+        if (exportOtlp) tracing.AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics.AddMeter(Telemetry.Name, "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "Npgsql")
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation();
+        if (exportOtlp) metrics.AddOtlpExporter();
+    });
 
 var app = builder.Build();
+if (!app.Environment.IsDevelopment()) app.UseHsts();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+    await next();
+});
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+app.UseRouting();
 app.UseCors();
 app.MapOpenApi();
 
@@ -26,7 +88,20 @@ if (builder.Configuration.GetValue<bool>("Database:ApplyMigrations"))
 
 app.UseAuthentication();
 app.UseMiddleware<TenantContextMiddleware>();
+app.Use(async (context, next) =>
+{
+    var tenant = context.RequestServices.GetRequiredService<ITenantContext>();
+    using (app.Logger.BeginScope(new Dictionary<string, object?>
+    {
+        ["TraceId"] = Activity.Current?.TraceId.ToString(),
+        ["RequestId"] = context.TraceIdentifier,
+        ["TenantId"] = tenant.IsAvailable ? tenant.TenantId : null,
+        ["UserSubject"] = tenant.IsAvailable ? tenant.UserSubject : null,
+        ["AtlasId"] = context.Request.RouteValues["atlasId"]
+    })) await next();
+});
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.1.0" })).AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
@@ -40,7 +115,7 @@ publicApi.MapGet("/passports/{publicId}", async (string publicId, UnitAtlasDb db
 {
     var config = await db.PublicPassportConfigs.AsNoTracking()
         .SingleOrDefaultAsync(x => x.PublicId == publicId && x.IsPublished);
-    if (config is null) return Results.NotFound(new { code = "PASSPORT_NOT_FOUND" });
+    if (config is null) return Problem("PASSPORT_NOT_FOUND", "Passport not found.", StatusCodes.Status404NotFound);
 
     tenantContext.Initialize(config.TenantId, "public-passport", TenantRole.Viewer);
     try
@@ -66,7 +141,7 @@ publicApi.MapGet("/passports/{publicId}", async (string publicId, UnitAtlasDb db
     {
         tenantContext.Clear();
     }
-}).AllowAnonymous();
+}).AllowAnonymous().RequireRateLimiting("public-passport");
 
 var api = app.MapGroup("/api/v1");
 api.RequireAuthorization();
@@ -121,14 +196,26 @@ api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db, ITenantC
     return Results.Created($"/api/v1/products/{product.Id}", new { product.Id, product.Sku, product.Name, product.Gtin });
 }).RequireAuthorization(Permissions.ProductsManage);
 
-api.MapGet("/units", async (string? query, UnitAtlasDb db) =>
-    Results.Ok(await UnitQuery(db, query).Take(100).ToListAsync()))
-    .RequireAuthorization(Permissions.UnitsRead);
+api.MapGet("/units", async (string? query, string? cursor, int? limit, HttpResponse response, UnitAtlasDb db) =>
+{
+    var pageSize = Math.Clamp(limit ?? 50, 1, 100);
+    var units = await UnitQuery(db, query, cursor, orderByAtlasId: true)
+        .Take(pageSize + 1)
+        .ToListAsync();
+    if (units.Count > pageSize)
+    {
+        units.RemoveAt(pageSize);
+        response.Headers["X-Next-Cursor"] = units[^1].AtlasId;
+    }
+    return Results.Ok(units);
+})
+    .RequireAuthorization(Permissions.UnitsRead)
+    .RequireRateLimiting("unit-search");
 
 api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
 {
     var product = await db.Products.FindAsync(request.ProductId);
-    if (product is null) return Results.NotFound(new { message = "Product not found." });
+    if (product is null) return Problem("PRODUCT_NOT_FOUND", "Product not found.", StatusCodes.Status404NotFound);
     if (string.IsNullOrWhiteSpace(request.Serial) || string.IsNullOrWhiteSpace(request.Lot))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["unit"] = ["Serial and lot are required."] });
 
@@ -170,7 +257,7 @@ api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
 api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
 {
     var unit = await db.Units.AsNoTracking().Include(x => x.Product).SingleOrDefaultAsync(x => x.AtlasId == atlasId);
-    if (unit is null) return Results.NotFound(new { message = "Unit not found." });
+    if (unit is null) return Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound);
     var state = await db.UnitStates.AsNoTracking().SingleAsync(x => x.UnitId == unit.Id);
     var events = await db.TraceEvents.AsNoTracking().Where(x => x.UnitId == unit.Id)
         .OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Sequence)
@@ -186,17 +273,23 @@ api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
         state = new { state.Status, state.Location, state.UpdatedAt },
         events
     });
-}).RequireAuthorization(Permissions.UnitsRead);
+}).RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("unit-lookup");
 
-api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest request, UnitAtlasDb db, ITenantContext tenantContext) =>
+api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest request, UnitAtlasDb db, ITenantContext tenantContext, ILogger<Program> logger) =>
 {
+    using var ingestActivity = Telemetry.Activities.StartActivity("unitatlas.event.ingest");
+    ingestActivity?.SetTag("unitatlas.atlas_id", atlasId);
     if (!TraceEventProjection.TryGetStatus(request.EventType ?? "", out var status))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["eventType"] = [$"Allowed: {string.Join(", ", TraceEventProjection.EventTypes)}"] });
     if (string.IsNullOrWhiteSpace(request.Location) || string.IsNullOrWhiteSpace(request.IdempotencyKey))
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["event"] = ["Location and idempotencyKey are required."] });
 
+    var locationIds = new[] { request.ReadPointId, request.BusinessLocationId }.OfType<Guid>().Distinct().ToArray();
+    if (locationIds.Length > 0 && await db.Locations.CountAsync(location => locationIds.Contains(location.Id)) != locationIds.Length)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["location"] = ["readPointId and businessLocationId must belong to the active tenant."] });
+
     var unit = await db.Units.SingleOrDefaultAsync(x => x.AtlasId == atlasId);
-    if (unit is null) return Results.NotFound(new { message = "Unit not found." });
+    if (unit is null) return Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound);
     var operation = $"unit:{unit.Id}:event";
     var requestHash = EventRequestHash.Compute(atlasId, request);
     var idempotencyKey = request.IdempotencyKey.Trim();
@@ -217,6 +310,11 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
         var sequence = (await db.TraceEvents.Where(x => x.UnitId == unit.Id).MaxAsync(x => (long?)x.Sequence) ?? 0) + 1;
         var trace = NewEvent(unit, request.EventType!.ToUpperInvariant(), request.Location!.Trim(), idempotencyKey, request.Actor?.Trim() ?? "operator", request.OccurredAt ?? DateTimeOffset.UtcNow, sequence);
         trace.ActorSubject = tenantContext.UserSubject;
+        trace.ReadPointId = request.ReadPointId;
+        trace.BusinessLocationId = request.BusinessLocationId;
+        trace.BusinessStep = request.BusinessStep?.Trim();
+        trace.Disposition = request.Disposition?.Trim();
+        trace.SourceSystem = request.SourceSystem?.Trim() ?? "unitatlas";
         var state = await db.UnitStates.SingleAsync(x => x.UnitId == unit.Id);
         TraceEventProjection.Apply(state, trace, status);
         var now = DateTimeOffset.UtcNow;
@@ -254,6 +352,10 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
             });
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
+        ingestActivity?.SetTag("unitatlas.event_id", trace.Id);
+        ingestActivity?.SetTag("unitatlas.event_type", trace.EventType);
+        Telemetry.EventsRecorded.Add(1, new KeyValuePair<string, object?>("event.type", trace.EventType));
+        logger.LogInformation("Trace event recorded {EventId} for {AtlasId}", trace.Id, unit.AtlasId);
         return Results.Created($"/api/v1/units/{atlasId}", new { trace.Id, duplicate = false });
     }
     catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -264,18 +366,22 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
         if (winner is null) throw;
         return IdempotencyResult(winner, operation, requestHash);
     }
-}).RequireAuthorization(Permissions.EventsRecord);
+}).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("event-ingest");
 
 app.Run();
 
-static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null) =>
-    from unit in db.Units.AsNoTracking()
-    join product in db.Products.AsNoTracking() on unit.ProductId equals product.Id
-    join state in db.UnitStates.AsNoTracking() on unit.Id equals state.UnitId
-    where string.IsNullOrWhiteSpace(query) || unit.AtlasId.Contains(query) || unit.Serial.Contains(query) || product.Gtin.Contains(query)
-    orderby state.UpdatedAt descending
-    select new UnitSummary(unit.AtlasId, unit.Serial, unit.Lot, product.Name, product.Sku,
-        product.Gtin, state.Status, state.Location, state.UpdatedAt);
+static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, string? cursor = null, bool orderByAtlasId = false)
+{
+    var rows = from unit in db.Units.AsNoTracking()
+               join product in db.Products.AsNoTracking() on unit.ProductId equals product.Id
+               join state in db.UnitStates.AsNoTracking() on unit.Id equals state.UnitId
+               where string.IsNullOrWhiteSpace(query) || unit.AtlasId.Contains(query) || unit.Serial.Contains(query) || product.Gtin.Contains(query)
+               select new { Unit = unit, Product = product, State = state };
+    if (cursor is not null) rows = rows.Where(row => row.Unit.AtlasId.CompareTo(cursor) > 0);
+    var ordered = orderByAtlasId ? rows.OrderBy(row => row.Unit.AtlasId) : rows.OrderByDescending(row => row.State.UpdatedAt);
+    return ordered.Select(row => new UnitSummary(row.Unit.AtlasId, row.Unit.Serial, row.Unit.Lot, row.Product.Name,
+        row.Product.Sku, row.Product.Gtin, row.State.Status, row.State.Location, row.State.UpdatedAt));
+}
 
 static TraceEvent NewEvent(TrackedUnit unit, string type, string location, string key, string actor, DateTimeOffset occurredAt, long sequence) => new()
 {
@@ -307,6 +413,30 @@ static UnitState NewState(TrackedUnit unit, TraceEvent trace, string status) => 
 static IResult IdempotencyResult(IdempotencyRecord record, string operation, string requestHash) =>
     record.Operation == operation && record.RequestHash == requestHash
         ? Results.Json(new { id = record.ResourceId, duplicate = true }, statusCode: record.ResponseStatus)
-        : Results.Conflict(new { code = "IDEMPOTENCY_KEY_REUSED", message = "The idempotency key was already used with a different request." });
+        : Problem("IDEMPOTENCY_KEY_REUSED", "Idempotency key reused.", StatusCodes.Status409Conflict,
+            "The idempotency key was already used with a different request.");
+
+static IResult Problem(string code, string title, int status, string? detail = null) =>
+    Results.Problem(statusCode: status, title: title, detail: detail,
+        extensions: new Dictionary<string, object?> { ["code"] = code });
+
+static string ErrorCode(int? status) => status switch
+{
+    StatusCodes.Status400BadRequest => "VALIDATION_ERROR",
+    StatusCodes.Status401Unauthorized => "UNAUTHORIZED",
+    StatusCodes.Status403Forbidden => "FORBIDDEN",
+    StatusCodes.Status404NotFound => "NOT_FOUND",
+    StatusCodes.Status409Conflict => "CONFLICT",
+    StatusCodes.Status429TooManyRequests => "RATE_LIMITED",
+    _ => "INTERNAL_ERROR"
+};
+
+static void ConfigureLimiter(FixedWindowRateLimiterOptions options, int permitLimit)
+{
+    options.PermitLimit = permitLimit;
+    options.Window = TimeSpan.FromMinutes(1);
+    options.QueueLimit = 0;
+    options.AutoReplenishment = true;
+}
 
 public partial class Program;

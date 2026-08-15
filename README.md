@@ -11,10 +11,12 @@
 - Site/Location/Lot, extensible identifiers, audit, outbox и public passport config;
 - request-hash idempotency с 409 при повторном key и другом body;
 - versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
+- Problem Details, cursor pagination, rate limits, security headers и JSON logs;
+- OpenTelemetry HTTP/Npgsql traces и application metrics с optional OTLP export;
 - ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
 - unit- и HTTP integration-тесты в CI.
 
-Архитектурные границы описаны в [ADR 0001](docs/adr/0001-modular-monolith.md), а прогресс к пилоту — в [матрице v0.1](docs/architecture/v0.1-definition-of-done.md).
+Архитектурные границы описаны в [ADR 0001](docs/adr/0001-modular-monolith.md), прогресс к пилоту — в [матрице v0.1](docs/architecture/v0.1-definition-of-done.md), эксплуатация — в [pilot runbook](docs/operations/pilot-runbook.md).
 
 ## Запуск
 
@@ -76,7 +78,7 @@ dotnet tool run dotnet-ef migrations script InitialArchitecture 0 --project src/
 
 Риск: внешний Identity Provider, client registration и production memberships не создаются репозиторием автоматически. BFF пока не обновляет истёкший access token через refresh token; после expiry пользователь входит повторно. Development demo auth нельзя включать в публичном окружении.
 
-Минимальный следующий шаг: добавить ProblemDetails, rate limiting, security headers, structured logging и OpenTelemetry, затем провести backup/restore rehearsal.
+Rate limits локальны одной pilot-реплике. Перед горизонтальным масштабированием их следует перенести в gateway/shared store. OTLP export включается через `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 ## Rollback
 

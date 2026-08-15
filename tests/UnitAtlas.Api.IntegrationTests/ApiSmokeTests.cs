@@ -71,6 +71,43 @@ public sealed class ApiSmokeTests
 
         Assert.Equal(HttpStatusCode.BadRequest, product.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, traceEvent.StatusCode);
+        var problem = await traceEvent.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("VALIDATION_ERROR", problem.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+    }
+
+    [Fact]
+    public async Task Errors_headers_and_cursor_pagination_have_stable_contracts()
+    {
+        var missing = await _client.GetAsync("/api/v1/units/does-not-exist");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        var problem = await missing.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("UNIT_NOT_FOUND", problem.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.GetProperty("traceId").GetString()));
+        Assert.Equal("nosniff", missing.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.True(missing.Headers.Contains("Content-Security-Policy"));
+
+        var first = await _client.GetAsync("/api/v1/units?limit=2");
+        var firstPage = await first.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, firstPage.GetArrayLength());
+        var cursor = first.Headers.GetValues("X-Next-Cursor").Single();
+        var secondPage = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/units?limit=2&cursor={Uri.EscapeDataString(cursor)}");
+        Assert.DoesNotContain(secondPage.EnumerateArray(), item =>
+            firstPage.EnumerateArray().Any(firstItem => firstItem.GetProperty("atlasId").GetString() == item.GetProperty("atlasId").GetString()));
+    }
+
+    [Fact]
+    public async Task Structured_locations_cannot_cross_the_tenant_boundary()
+    {
+        var response = await _client.PostAsJsonAsync("/api/v1/units/UA-KZ-2026-0000058219/events", new
+        {
+            eventType = "PACKED",
+            location = "Warehouse A",
+            idempotencyKey = $"integration:location:{Guid.NewGuid()}",
+            businessLocationId = Guid.NewGuid()
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("VALIDATION_ERROR", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
     }
 
     [Fact]
