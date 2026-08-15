@@ -35,8 +35,49 @@ app.MapGet("/health/ready", async (UnitAtlasDb db) =>
 app.MapGet("/health", async (UnitAtlasDb db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.Problem("Database unavailable"));
 
-var api = app.MapGroup("/api");
+var publicApi = app.MapGroup("/api/public");
+publicApi.MapGet("/passports/{publicId}", async (string publicId, UnitAtlasDb db, ITenantContext tenantContext) =>
+{
+    var config = await db.PublicPassportConfigs.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.PublicId == publicId && x.IsPublished);
+    if (config is null) return Results.NotFound(new { code = "PASSPORT_NOT_FOUND" });
+
+    tenantContext.Initialize(config.TenantId, "public-passport", TenantRole.Viewer);
+    try
+    {
+        var unit = await db.Units.AsNoTracking().Include(x => x.Product).SingleAsync(x => x.Id == config.UnitId);
+        var state = await db.UnitStates.AsNoTracking().SingleAsync(x => x.UnitId == unit.Id);
+        var timeline = await db.TraceEvents.AsNoTracking().Where(x => x.UnitId == unit.Id)
+            .OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Sequence)
+            .Select(x => new { code = x.EventType, x.OccurredAt })
+            .ToListAsync();
+        return Results.Ok(new
+        {
+            config.PublicId,
+            authenticity = "verified",
+            product = new { unit.Product.Name, unit.Product.Gtin },
+            unit.Serial,
+            unit.ManufacturedAt,
+            state = new { state.Status, state.UpdatedAt },
+            timeline
+        });
+    }
+    finally
+    {
+        tenantContext.Clear();
+    }
+}).AllowAnonymous();
+
+var api = app.MapGroup("/api/v1");
 api.RequireAuthorization();
+
+api.MapGet("/me", (ITenantContext tenantContext) => Results.Ok(new
+{
+    tenantContext.UserSubject,
+    tenantContext.TenantId,
+    role = tenantContext.Role.ToString(),
+    permissions = tenantContext.GrantedPermissions
+})).RequireAuthorization(Permissions.UnitsRead);
 
 api.MapGet("/dashboard", async (UnitAtlasDb db) =>
 {
@@ -77,7 +118,7 @@ api.MapPost("/products", async (ProductRequest request, UnitAtlasDb db, ITenantC
         new ProductIdentifier { Id = Guid.NewGuid(), TenantId = product.TenantId, ProductId = product.Id, Type = "SKU", Value = product.Sku },
         new ProductIdentifier { Id = Guid.NewGuid(), TenantId = product.TenantId, ProductId = product.Id, Type = "GTIN", Value = product.Gtin });
     await db.SaveChangesAsync();
-    return Results.Created($"/api/products/{product.Id}", new { product.Id, product.Sku, product.Name, product.Gtin });
+    return Results.Created($"/api/v1/products/{product.Id}", new { product.Id, product.Sku, product.Name, product.Gtin });
 }).RequireAuthorization(Permissions.ProductsManage);
 
 api.MapGet("/units", async (string? query, UnitAtlasDb db) =>
@@ -123,7 +164,7 @@ api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
         new UnitIdentifier { Id = Guid.NewGuid(), TenantId = unit.TenantId, UnitId = unit.Id, Type = "SERIAL", Value = unit.Serial },
         new PublicPassportConfig { UnitId = unit.Id, TenantId = unit.TenantId, PublicId = Guid.NewGuid().ToString("N"), IsPublished = false });
     await db.SaveChangesAsync();
-    return Results.Created($"/api/units/{unit.AtlasId}", new { unit.AtlasId });
+    return Results.Created($"/api/v1/units/{unit.AtlasId}", new { unit.AtlasId });
 }).RequireAuthorization(Permissions.UnitsCreate);
 
 api.MapGet("/units/{atlasId}", async (string atlasId, UnitAtlasDb db) =>
@@ -213,7 +254,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
             });
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
-        return Results.Created($"/api/units/{atlasId}", new { trace.Id, duplicate = false });
+        return Results.Created($"/api/v1/units/{atlasId}", new { trace.Id, duplicate = false });
     }
     catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
     {

@@ -41,10 +41,10 @@ services:
   web:
     build:
       context: src/unitatlas-web
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:8080/api
     environment:
-      API_INTERNAL_URL: http://api:8080/api
+      API_INTERNAL_URL: http://api:8080
+      APP_BASE_URL: http://localhost:3000
+      AUTH_DEMO_MODE: "true"
     depends_on:
       api:
         condition: service_healthy

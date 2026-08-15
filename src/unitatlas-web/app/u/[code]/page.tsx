@@ -1,7 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import EventActions from "./EventActions";
-
-const API = process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api";
+import { internalApi } from "../../../lib/api";
 
 type Passport = {
   atlasId: string; serial: string; lot: string; manufacturedAt: string;
@@ -12,7 +12,8 @@ type Passport = {
 
 export default async function PassportPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
-  const response = await fetch(`${API}/units/${encodeURIComponent(code)}`, { cache: "no-store" });
+  const response = await internalApi(`units/${encodeURIComponent(code)}`);
+  if (response.status === 401) redirect(`/auth/login?returnTo=${encodeURIComponent(`/u/${code}`)}`);
   if (!response.ok) return <main className="passport-shell"><Link href="/" className="back">← UnitAtlas</Link><section className="passport"><h1>Изделие не найдено</h1><p>Проверьте UnitAtlas ID и повторите поиск.</p></section></main>;
   const data: Passport = await response.json();
 

@@ -92,7 +92,14 @@ public static class DatabaseInitializer
             TraceEventProjection.TryGetStatus(type, out var status);
             db.AddRange(unit, manufactured, latest, NewState(unit, latest, status),
                 new UnitIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, UnitId = unit.Id, Type = "ATLAS_ID", Value = unit.AtlasId },
-                new UnitIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, UnitId = unit.Id, Type = "SERIAL", Value = unit.Serial });
+                new UnitIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, UnitId = unit.Id, Type = "SERIAL", Value = unit.Serial },
+                new PublicPassportConfig
+                {
+                    UnitId = unit.Id,
+                    TenantId = tenant.Id,
+                    PublicId = atlasId == "UA-KZ-2026-0000058219" ? "demo-x200-58219" : Guid.NewGuid().ToString("N"),
+                    IsPublished = atlasId == "UA-KZ-2026-0000058219"
+                });
         }
         await db.SaveChangesAsync(cancellationToken);
 

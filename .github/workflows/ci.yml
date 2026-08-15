@@ -9,6 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Frontend typecheck and lint
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}/src/unitatlas-web:/app"
+          -w /app node:24-alpine
+          sh -lc "npm ci && npm run typecheck && npm run lint"
       - name: Build images
         run: docker compose build
       - name: Start isolated stack
@@ -17,7 +23,8 @@ jobs:
         run: |
           docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT usesuper FROM pg_user WHERE usename='unitatlas'" | grep -qx t
           docker compose exec -T -e PGPASSWORD=unitatlas_dev db psql -h 127.0.0.1 -U unitatlas -d unitatlas -tAc "SELECT count(*) FROM products" | grep -qx 0
-          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=15 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships','audit_entries','external_references','idempotency_records','locations','lots','outbox_messages','product_identifiers','public_passport_configs','sites','unit_identifiers')" | grep -qx t
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships','audit_entries','external_references','idempotency_records','locations','lots','outbox_messages','product_identifiers','sites','unit_identifiers')" | grep -qx t
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT relrowsecurity AND NOT relforcerowsecurity FROM pg_class WHERE relname='public_passport_configs'" | grep -qx t
       - name: Run .NET tests
         run: >-
           docker run --rm
@@ -28,7 +35,13 @@ jobs:
           mcr.microsoft.com/dotnet/sdk:10.0
           dotnet test UnitAtlas.slnx --configuration Release
       - name: Smoke test web
-        run: curl --fail --silent http://localhost:3000 >/dev/null
+        run: |
+          curl --fail --silent http://localhost:3000 >/dev/null
+          curl --fail --silent http://localhost:3000/bff/dashboard >/dev/null
+          curl --fail --silent http://localhost:3000/p/demo-x200-58219 | grep -q "ПУБЛИЧНЫЙ ЦИФРОВОЙ ПАСПОРТ"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/api/dashboard)" = "404"
+          public_json="$(curl --fail --silent http://localhost:8080/api/public/passports/demo-x200-58219)"
+          ! echo "$public_json" | grep -Eqi 'actor|location|demo.operator'
       - name: Show logs on failure
         if: failure()
         run: docker compose logs
