@@ -20,10 +20,12 @@ public sealed class PackagingTests
         var box = $"BOX-{suffix}";
         var secondBox = $"BOX2-{suffix}";
         var pallet = $"PAL-{suffix}";
+        var container = $"CONT-{suffix}";
 
         Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = box, type = "BOX" })).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = secondBox, type = "BOX" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET", sscc = "123456789012345675" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET", sscc = NewSscc() })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = container, type = "CONTAINER" })).StatusCode);
 
         var key = $"packaging:add:{Guid.NewGuid()}";
         var addUnit = new
@@ -59,11 +61,23 @@ public sealed class PackagingTests
         });
         Assert.Equal(HttpStatusCode.Created, nest.StatusCode);
 
+        var nestPallet = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{container}/aggregations", new
+        {
+            action = "ADD",
+            idempotencyKey = $"packaging:nest-pallet:{Guid.NewGuid()}",
+            logisticUnitCodes = new[] { pallet }
+        });
+        Assert.Equal(HttpStatusCode.Created, nestPallet.StatusCode);
+
+        var containerState = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/logistic-units/{container}");
+        Assert.Contains(containerState.GetProperty("children").EnumerateArray(), child =>
+            child.GetProperty("code").GetString() == pallet);
+
         var cycle = await _client.PostAsJsonAsync($"/api/v1/logistic-units/{box}/aggregations", new
         {
             action = "ADD",
             idempotencyKey = $"packaging:cycle:{Guid.NewGuid()}",
-            logisticUnitCodes = new[] { pallet }
+            logisticUnitCodes = new[] { container }
         });
         Assert.Equal(HttpStatusCode.Conflict, cycle.StatusCode);
         Assert.Equal("AGGREGATION_CYCLE", (await cycle.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
@@ -148,5 +162,12 @@ public sealed class PackagingTests
 
         static AggregationRequest Request(IReadOnlyCollection<string> children) =>
             new("ADD", "ignored", children, null, null, null, null, "unitatlas");
+    }
+
+    private static string NewSscc()
+    {
+        var body = Random.Shared.NextInt64(10_000_000_000_000_000).ToString("D17");
+        var sum = body.Select((value, index) => (value - '0') * (index % 2 == 0 ? 3 : 1)).Sum();
+        return body + (10 - sum % 10) % 10;
     }
 }
