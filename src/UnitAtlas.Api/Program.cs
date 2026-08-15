@@ -103,7 +103,7 @@ app.Use(async (context, next) =>
 app.UseAuthorization();
 app.UseRateLimiter();
 
-app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.1.0" })).AllowAnonymous();
+app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.2.0-dev" })).AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/health/ready", async (UnitAtlasDb db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.Problem("Database unavailable"));
@@ -371,6 +371,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
     }
 }).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("event-ingest");
 
+app.MapPackagingEndpoints();
 app.Run();
 
 static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, string? cursor = null, bool orderByAtlasId = false)
