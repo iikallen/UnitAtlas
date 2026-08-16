@@ -8,13 +8,13 @@ class CaptureApi {
   CaptureApi(
     this.baseUri, {
     http.Client? client,
-    this.accessToken,
+    this.accessTokenProvider,
     this.sessionToken,
   }) : _client = client ?? http.Client();
 
   final Uri baseUri;
   final http.Client _client;
-  final String? accessToken;
+  final Future<String?> Function()? accessTokenProvider;
   String? sessionToken;
 
   bool get hasSession => sessionToken?.isNotEmpty == true;
@@ -25,7 +25,7 @@ class CaptureApi {
   ) async => _json(
     await _client.post(
       baseUri.resolve('/api/v1/capture/enroll'),
-      headers: _headers(json: true, includeSession: false),
+      headers: await _headers(json: true, includeSession: false),
       body: jsonEncode({
         'deviceCode': deviceCode,
         'enrollmentCode': enrollmentCode,
@@ -36,21 +36,21 @@ class CaptureApi {
   Future<Map<String, dynamic>> bootstrap() async => _json(
     await _client.get(
       baseUri.resolve('/api/v1/capture/bootstrap'),
-      headers: _headers(),
+      headers: await _headers(),
     ),
   );
 
   Future<Map<String, dynamic>> changes(String after) async => _json(
     await _client.get(
       baseUri.resolve('/api/v1/capture/changes?after=$after'),
-      headers: _headers(),
+      headers: await _headers(),
     ),
   );
 
   Future<Map<String, dynamic>> sync(PendingCommand command) async {
     final response = await _client.post(
       baseUri.resolve('/api/v1/capture/sync'),
-      headers: _headers(json: true),
+      headers: await _headers(json: true),
       body: jsonEncode(command.toRequest()),
     );
     return _json(response);
@@ -59,7 +59,7 @@ class CaptureApi {
   Future<Map<String, dynamic>> production(PendingCommand command) async {
     final response = await _client.post(
       baseUri.resolve('/api/v1/capture/production'),
-      headers: _headers(json: true),
+      headers: await _headers(json: true),
       body: jsonEncode(command.toRequest()),
     );
     return _json(response);
@@ -68,20 +68,24 @@ class CaptureApi {
   Future<Map<String, dynamic>> resolve(String code) async => _json(
     await _client.post(
       baseUri.resolve('/api/v1/capture/resolve'),
-      headers: _headers(json: true),
+      headers: await _headers(json: true),
       body: jsonEncode({'code': code}),
     ),
   );
 
-  Map<String, String> _headers({
+  Future<Map<String, String>> _headers({
     bool json = false,
     bool includeSession = true,
-  }) => {
-    if (json) 'content-type': 'application/json',
-    if (accessToken?.isNotEmpty == true) 'authorization': 'Bearer $accessToken',
-    if (includeSession && sessionToken?.isNotEmpty == true)
-      'X-UnitAtlas-Device-Session': sessionToken!,
-  };
+  }) async {
+    final accessToken = await accessTokenProvider?.call();
+    return {
+      if (json) 'content-type': 'application/json',
+      if (accessToken?.isNotEmpty == true)
+        'authorization': 'Bearer $accessToken',
+      if (includeSession && sessionToken?.isNotEmpty == true)
+        'X-UnitAtlas-Device-Session': sessionToken!,
+    };
+  }
 
   Map<String, dynamic> _json(http.Response response) {
     final body = jsonDecode(response.body) as Map<String, dynamic>;

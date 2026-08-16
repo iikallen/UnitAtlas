@@ -9,8 +9,9 @@ import '../scan/scan_source.dart';
 import '../sync/capture_repository.dart';
 
 class TaskHome extends StatefulWidget {
-  const TaskHome({super.key, required this.repository});
+  const TaskHome({super.key, required this.repository, this.onSignOut});
   final CaptureRepository repository;
+  final Future<void> Function()? onSignOut;
 
   @override
   State<TaskHome> createState() => _TaskHomeState();
@@ -60,7 +61,17 @@ class _TaskHomeState extends State<TaskHome> {
         .length;
     final conflicts = commands.where((x) => x.syncStatus == 'CONFLICT').length;
     return Scaffold(
-      appBar: AppBar(title: const Text('UNITATLAS CAPTURE')),
+      appBar: AppBar(
+        title: const Text('UNITATLAS CAPTURE'),
+        actions: [
+          if (widget.onSignOut != null)
+            IconButton(
+              tooltip: 'Выйти',
+              onPressed: busy ? null : widget.onSignOut,
+              icon: const Icon(Icons.logout),
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -255,13 +266,14 @@ class _ProductionWorkflowState extends State<ProductionWorkflow> {
         children: [
           ScanInput(
             label: 'Сканируйте напечатанную этикетку',
-            onScan: (raw) => setState(
-              () => scannedCode = ScanParser.parse(raw).identifier,
-            ),
+            onScan: (raw) =>
+                setState(() => scannedCode = ScanParser.parse(raw).identifier),
           ),
           Text('Изделие: ${scannedCode ?? '—'}'),
           TextField(
-            decoration: const InputDecoration(labelText: 'Производственная линия'),
+            decoration: const InputDecoration(
+              labelText: 'Производственная линия',
+            ),
             onChanged: (value) => location = value,
           ),
           const SizedBox(height: 16),

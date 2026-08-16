@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api/capture_api.dart';
 import 'app/capture_app.dart';
+import 'auth/capture_auth.dart';
 import 'database/local_database.dart';
 import 'sync/capture_repository.dart';
 
@@ -17,17 +18,36 @@ Future<void> main() async {
     defaultValue: 'UNENROLLED-ANDROID',
   );
   const accessToken = String.fromEnvironment('UNITATLAS_ACCESS_TOKEN');
+  const oidcIssuer = String.fromEnvironment('UNITATLAS_OIDC_ISSUER');
+  const oidcClientId = String.fromEnvironment('UNITATLAS_OIDC_CLIENT_ID');
+  const oidcScopes = String.fromEnvironment(
+    'UNITATLAS_OIDC_SCOPES',
+    defaultValue: 'openid profile offline_access',
+  );
+  const oidcRedirectUri = String.fromEnvironment(
+    'UNITATLAS_OIDC_REDIRECT_URI',
+    defaultValue: 'com.unitatlas.capture:/oauthredirect',
+  );
   const storage = FlutterSecureStorage();
+  final auth = CaptureAuth(
+    issuer: oidcIssuer,
+    clientId: oidcClientId,
+    redirectUri: oidcRedirectUri,
+    storage: storage,
+    staticAccessToken: accessToken,
+    scopes: oidcScopes.split(RegExp(r'\s+')),
+  );
+  await auth.restore();
   final sessionToken = await storage.read(key: 'device_session');
   final repository = CaptureRepository(
     database: LocalDatabase(),
     api: CaptureApi(
       Uri.parse(apiUrl),
-      accessToken: accessToken,
+      accessTokenProvider: auth.bearerToken,
       sessionToken: sessionToken,
     ),
     deviceId: deviceId,
     storage: storage,
   );
-  runApp(CaptureApp(repository: repository));
+  runApp(CaptureApp(repository: repository, auth: auth));
 }

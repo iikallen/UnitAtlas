@@ -4,13 +4,14 @@
 
 - Keep the first pilot on one API/Web replica; the existing process-local rate limiter is acceptable only under that constraint.
 - Verify HTTPS, production OIDC, session renewal, runtime PostgreSQL role, printer connectivity and enrolled device/station assignments.
+- Register `com.unitatlas.capture:/oauthredirect` as a public native-client redirect URI, enable Authorization Code + PKCE and refresh tokens, configure the API audience scopes, and install an APK signed with the pilot release key. Never add a client secret or `UNITATLAS_ACCESS_TOKEN` to the APK.
 - Confirm the tenant identifier mode. `INTERNAL` labels must not be presented as GS1 identifiers. `GS1` requires the tenant's licensed GS1 Company Prefix and validated check digits.
 - Confirm profile `ONEC_UPP_KZ_1_3_HTTP_JSON_V1`, the reviewed customer 1C extension, credentials by secret reference, enabled integration endpoint, empty dead-letter backlog and expected regulatory route.
 - Apply reviewed migration SQL with a release role before switching traffic.
 
 ## Shift checks
 
-1. Bootstrap one enrolled Capture device and verify its user, tenant, station, site and location.
+1. Sign in on one enrolled Capture device, verify its user, tenant, station, site and location, then confirm that restart and access-token refresh preserve the session and sign-out revokes the local tokens.
 2. Produce and print one test Unit label, then scan it back before releasing the batch.
 3. Run Unit → Box and Box → Pallet flows once online and once with connectivity disabled.
 4. Reconnect and verify every accepted local command is acknowledged exactly once.

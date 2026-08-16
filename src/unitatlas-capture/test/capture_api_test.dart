@@ -7,9 +7,10 @@ import 'package:unitatlas_capture/capture/pending_command.dart';
 void main() {
   test('enrollment omits device session and enrolled calls send it', () async {
     final requests = <http.Request>[];
+    var accessToken = 'user-token';
     final api = CaptureApi(
       Uri.parse('https://unitatlas.test'),
-      accessToken: 'user-token',
+      accessTokenProvider: () async => accessToken,
       sessionToken: 'device-token',
       client: MockClient((request) async {
         requests.add(request);
@@ -24,6 +25,7 @@ void main() {
     );
 
     await api.enroll('ZEBRA-1', 'one-time-code');
+    accessToken = 'refreshed-user-token';
     await api.changes('7');
     await api.production(
       PendingCommand.production(
@@ -34,6 +36,10 @@ void main() {
     );
 
     expect(requests.first.headers['authorization'], 'Bearer user-token');
+    expect(
+      requests.last.headers['authorization'],
+      'Bearer refreshed-user-token',
+    );
     expect(
       requests.first.headers,
       isNot(contains('x-unitatlas-device-session')),
