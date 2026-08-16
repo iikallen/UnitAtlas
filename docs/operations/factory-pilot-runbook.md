@@ -5,7 +5,7 @@
 - Keep the first pilot on one API/Web replica; the existing process-local rate limiter is acceptable only under that constraint.
 - Verify HTTPS, production OIDC, session renewal, runtime PostgreSQL role, printer connectivity and enrolled device/station assignments.
 - Confirm the tenant identifier mode. `INTERNAL` labels must not be presented as GS1 identifiers. `GS1` requires the tenant's licensed GS1 Company Prefix and validated check digits.
-- Confirm the selected 1C profile, credentials by secret reference, enabled integration endpoint, empty dead-letter backlog and expected regulatory route.
+- Confirm profile `ONEC_UPP_KZ_1_3_HTTP_JSON_V1`, the reviewed customer 1C extension, credentials by secret reference, enabled integration endpoint, empty dead-letter backlog and expected regulatory route.
 - Apply reviewed migration SQL with a release role before switching traffic.
 
 ## Shift checks

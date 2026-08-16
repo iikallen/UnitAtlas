@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using UnitAtlas.Application.Integrations;
+using UnitAtlas.Application.Printing;
 using UnitAtlas.Application.Tenancy;
 using UnitAtlas.Application.Traceability;
 using UnitAtlas.Api.Observability;
@@ -67,9 +69,12 @@ public static class OneCEndpoints
                 {
                     "product.upsert" => await UpsertProductAsync(data, source, tenant, db),
                     "production.completed" => await CompleteProductionAsync(data, source, tenant, db, inboxId),
+                    "production_order.completed" when OneCPilotProfile.IsSelected(endpoint.SettingsJson)
+                        => await CompleteProductionOrderAsync(data, source, tenant, db, inboxId, hash),
+                    "production_order.completed" => Operation.Error("ONE_C_PROFILE_REQUIRED", $"Endpoint profile must be {OneCPilotProfile.Code}.", 409),
                     "shipment.recorded" => await RecordMovementAsync(data, source, tenant, db, inboxId, "SHIPPED"),
                     "receipt.recorded" => await RecordMovementAsync(data, source, tenant, db, inboxId, "RECEIVED"),
-                    _ => Operation.Error("ONE_C_MESSAGE_NOT_SUPPORTED", "Supported types: product.upsert, production.completed, shipment.recorded, receipt.recorded.", 400)
+                    _ => Operation.Error("ONE_C_MESSAGE_NOT_SUPPORTED", "Supported types: product.upsert, production.completed, production_order.completed, shipment.recorded, receipt.recorded.", 400)
                 };
                 if (outcome.ErrorCode is not null)
                 {
@@ -192,6 +197,125 @@ public static class OneCEndpoints
         return Operation.Ok(new { entityType = "TrackedUnit", entityId = unit.Id, atlasId = unit.AtlasId, externalId, created = true });
     }
 
+    private static async Task<Operation> CompleteProductionOrderAsync(
+        JsonElement data, string source, ITenantContext tenant, UnitAtlasDb db, Guid correlationId, string requestHash)
+    {
+        if (!Fields(data, out var externalId, out var productExternalId, out var lotCode, out var serialPrefix,
+                "externalId", "productExternalId", "lot", "serialPrefix")
+            || !Valid(externalId, 200) || !Valid(productExternalId, 200) || !Valid(lotCode, 20)
+            || !Valid(serialPrefix, 15) || !Integer(data, "quantity", out var quantity) || quantity is < 1 or > 1000)
+            return Operation.Error("INVALID_ONE_C_PRODUCTION_ORDER", "externalId, productExternalId, lot (max 20), serialPrefix (max 15) and quantity 1-1000 are required.", 400);
+        if (!OccurredAt(data, out var occurredAt))
+            return Operation.Error("INVALID_ONE_C_PRODUCTION_ORDER", "occurredAt must be an ISO-8601 timestamp.", 400);
+        if (!data.TryGetProperty("label", out var label) || label.ValueKind != JsonValueKind.Object
+            || !GuidField(label, "templateId", out var templateId)
+            || !GuidField(label, "profileId", out var profileId)
+            || !GuidField(label, "printerId", out var printerId))
+            return Operation.Error("INVALID_ONE_C_PRODUCTION_ORDER", "label.templateId, label.profileId and label.printerId are required.", 400);
+
+        var existingOrder = await db.ExternalReferences.AsNoTracking().SingleOrDefaultAsync(
+            x => x.System == source && x.EntityType == "Lot" && x.Value == externalId);
+        if (existingOrder is not null)
+        {
+            var priorUnits = await db.Units.AsNoTracking().Where(x => x.LotId == existingOrder.EntityId).OrderBy(x => x.Serial).ToListAsync();
+            var priorJob = await db.PrintJobs.AsNoTracking().SingleOrDefaultAsync(x => x.IdempotencyKey == $"1c:{source}:production-order:{externalId}:labels");
+            if (priorJob is null)
+                return Operation.Error("ONE_C_REFERENCE_BROKEN", "The production order external reference is invalid.", 409);
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Convert.FromHexString(priorJob.RequestHash), Convert.FromHexString(requestHash)))
+                return Operation.Error("ONE_C_PRODUCTION_ORDER_CONFLICT", "Production Order was already completed with a different payload.", 409);
+            return Operation.Ok(new
+            {
+                entityType = "ProductionOrder", productionBatchId = existingOrder.EntityId, externalId,
+                quantity = priorUnits.Count, printJobId = priorJob.Id,
+                units = priorUnits.Select(x => new { id = x.Id, atlasId = x.AtlasId, serial = x.Serial }), created = false
+            });
+        }
+
+        var productReference = await db.ExternalReferences.AsNoTracking().SingleOrDefaultAsync(
+            x => x.System == source && x.EntityType == "Product" && x.Value == productExternalId);
+        if (productReference is null)
+            return Operation.Error("ONE_C_PRODUCT_NOT_FOUND", "productExternalId was not found.", 404);
+        var product = await db.Products.SingleAsync(x => x.Id == productReference.EntityId);
+        var template = await db.LabelTemplates.SingleOrDefaultAsync(x => x.Id == templateId);
+        var profile = await db.PrintProfiles.SingleOrDefaultAsync(x => x.Id == profileId);
+        var printer = await db.Printers.SingleOrDefaultAsync(x => x.Id == printerId);
+        if (template is null || profile is null || printer is null)
+            return Operation.Error("PRINT_SETUP_NOT_FOUND", "Template, profile or printer was not found.", 404);
+        if (!printer.IsEnabled || template.EntityType != "UNIT" || template.Symbology != "GS1_DATA_MATRIX"
+            || template.IdentifierMode != "GS1" || profile.IdentifierMode != "GS1")
+            return Operation.Error("PILOT_PRINT_SETUP_MISMATCH", "The pilot requires an enabled printer and a GS1 Data Matrix unit template/profile.", 409);
+
+        var lot = await db.Lots.SingleOrDefaultAsync(x => x.ProductId == product.Id && x.Code == lotCode);
+        if (lot is null)
+        {
+            lot = new Lot
+            {
+                Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, ProductId = product.Id,
+                Code = lotCode, ManufacturedAt = occurredAt
+            };
+            db.Lots.Add(lot);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var printJob = new PrintJob
+        {
+            Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, TemplateId = template.Id,
+            ProfileId = profile.Id, PrinterId = printer.Id, Status = "PENDING",
+            IdempotencyKey = $"1c:{source}:production-order:{externalId}:labels", RequestHash = requestHash,
+            CreatedBy = tenant.UserSubject, CreatedAt = now
+        };
+        var units = new List<TrackedUnit>(quantity);
+        var entities = new List<object>(quantity * 9 + 5) { printJob };
+        for (var index = 1; index <= quantity; index++)
+        {
+            var serial = $"{serialPrefix}-{index:D4}";
+            if (!LabelPayloads.TryGs1Unit(product.Gtin, lotCode, serial, profile.Gs1CompanyPrefix!, out var labelPayload))
+                return Operation.Error("GS1_IDENTIFIER_INVALID", $"Unit {index} cannot be encoded with the configured GS1 Company Prefix.", 422);
+            var unit = new TrackedUnit
+            {
+                Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, ProductId = product.Id,
+                AtlasId = $"UA-KZ-{now:yyyy}-{Guid.NewGuid():N}", Serial = serial, Lot = lotCode,
+                LotId = lot.Id, ManufacturedAt = occurredAt, CreatedAt = now
+            };
+            var trace = Trace(unit, "MANUFACTURED", source, occurredAt, 1,
+                $"1c:{source}:{externalId}:{index}:manufactured", correlationId);
+            trace.SourceSystem = source;
+            units.Add(unit);
+            entities.AddRange([
+                unit, trace,
+                new UnitState { UnitId = unit.Id, TenantId = tenant.TenantId, Status = "Manufactured", Location = source,
+                    LastEventId = trace.Id, CurrentOccurredAt = occurredAt, CurrentSequence = 1, UpdatedAt = now },
+                new UnitIdentifier { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, UnitId = unit.Id, Type = "ATLAS_ID", Value = unit.AtlasId },
+                new UnitIdentifier { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, UnitId = unit.Id, Type = "SERIAL", Value = serial },
+                new PublicPassportConfig { UnitId = unit.Id, TenantId = tenant.TenantId, PublicId = Guid.NewGuid().ToString("N"), IsPublished = false },
+                new ExternalReference { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, System = source, EntityType = "TrackedUnit", EntityId = unit.Id, Value = $"{externalId}:{index:D4}" },
+                new PrintJobItem { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, PrintJobId = printJob.Id,
+                    EntityType = "UNIT", EntityId = unit.Id, Code = unit.AtlasId, Payload = labelPayload!.Encoded,
+                    HumanReadable = labelPayload.HumanReadable, Copies = 1 },
+                Outbox(tenant.TenantId, correlationId, "unit.created", "TrackedUnit", unit.Id,
+                    new { unit.Id, unit.AtlasId, unit.ProductId, unit.Serial, unit.Lot, unit.ManufacturedAt }),
+                Outbox(tenant.TenantId, correlationId, "trace_event.recorded", "TraceEvent", trace.Id,
+                    new { trace.Id, unit.AtlasId, trace.EventType, trace.Location, trace.OccurredAt, trace.SourceSystem })
+            ]);
+        }
+        entities.AddRange([
+            new ExternalReference { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, System = source, EntityType = "Lot", EntityId = lot.Id, Value = externalId },
+            Audit(tenant, "one_c.production_order.completed", "Lot", lot.Id,
+                new { source, externalId, productExternalId, lot = lot.Code, quantity, printJobId = printJob.Id }),
+            Outbox(tenant.TenantId, correlationId, "production_order.completed", "Lot", lot.Id,
+                new { productionOrderExternalId = externalId, productionBatchId = lot.Id, quantity, printJobId = printJob.Id }),
+            Outbox(tenant.TenantId, printJob.Id, "print_job.created", "PrintJob", printJob.Id,
+                new { printJobId = printJob.Id, itemCount = quantity })
+        ]);
+        db.AddRange(entities);
+        return Operation.Ok(new
+        {
+            entityType = "ProductionOrder", productionBatchId = lot.Id, externalId, quantity,
+            printJobId = printJob.Id, units = units.Select(x => new { id = x.Id, atlasId = x.AtlasId, serial = x.Serial }), created = true
+        });
+    }
+
     private static async Task<Operation> RecordMovementAsync(
         JsonElement data, string source, ITenantContext tenant, UnitAtlasDb db, Guid correlationId, string eventType)
     {
@@ -221,7 +345,10 @@ public static class OneCEndpoints
             new ExternalReference { Id = Guid.CreateVersion7(), TenantId = tenant.TenantId, System = source, EntityType = "TraceEvent", EntityId = trace.Id, Value = externalId },
             Audit(tenant, $"one_c.{eventType.ToLowerInvariant()}", "TraceEvent", trace.Id, new { source, externalId, unitExternalId, unit.AtlasId, eventType, occurredAt }),
             Outbox(tenant.TenantId, correlationId, "trace_event.recorded", "TraceEvent", trace.Id,
-                new { trace.Id, unit.AtlasId, trace.EventType, trace.Location, trace.OccurredAt, trace.SourceSystem }));
+                new { trace.Id, unit.AtlasId, trace.EventType, trace.Location, trace.OccurredAt, trace.SourceSystem }),
+            Outbox(tenant.TenantId, correlationId, eventType == "SHIPPED" ? "shipment.recorded" : "receipt.recorded",
+                "TrackedUnit", unit.Id,
+                new { traceId = trace.Id, unitId = unit.Id, unit.AtlasId, externalId, unitExternalId, trace.Location, trace.OccurredAt, trace.SourceSystem }));
         return Operation.Ok(new { entityType = "TraceEvent", entityId = trace.Id, externalId, created = true });
     }
 
@@ -278,6 +405,19 @@ public static class OneCEndpoints
     }
 
     private static bool Valid(string value, int max) => value.Length is > 0 && value.Length <= max;
+
+    private static bool Integer(JsonElement data, string name, out int value)
+    {
+        value = 0;
+        return data.TryGetProperty(name, out var property) && property.TryGetInt32(out value);
+    }
+
+    private static bool GuidField(JsonElement data, string name, out Guid value)
+    {
+        value = Guid.Empty;
+        return data.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+            && Guid.TryParse(property.GetString(), out value);
+    }
 
     private static IResult Existing(InboxMessage existing, string hash)
     {
