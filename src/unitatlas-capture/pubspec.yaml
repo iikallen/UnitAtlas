@@ -32,6 +32,7 @@ dependencies:
     sdk: flutter
 
   http: ^1.6.0
+  mobile_scanner: ^7.4.0
   sqflite: ^2.4.3
   uuid: ^4.6.0
 

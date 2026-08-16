@@ -31,6 +31,19 @@ class CaptureRepository {
     ),
   );
 
+  Future<void> queueTrace({
+    required String unitAtlasId,
+    required String eventType,
+    required String location,
+  }) => database.enqueue(
+    PendingCommand.trace(
+      deviceId: deviceId,
+      unitAtlasId: unitAtlasId,
+      eventType: eventType,
+      location: location,
+    ),
+  );
+
   Future<void> sync() async {
     for (final command in await database.pending()) {
       try {

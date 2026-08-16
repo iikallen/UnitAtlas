@@ -8,7 +8,6 @@ using OpenTelemetry.Trace;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.RateLimiting;
-using UnitAtlas.Application.Traceability;
 using UnitAtlas.Application.Tenancy;
 using UnitAtlas.Api;
 using UnitAtlas.Api.Auth;
@@ -288,102 +287,8 @@ api.MapGet("/units/{atlasId}/events", async (string atlasId, UnitAtlasDb db) =>
         : Results.Ok(await EventQuery(db, unitId.Value).ToListAsync());
 }).RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("unit-lookup");
 
-api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest request, UnitAtlasDb db, ITenantContext tenantContext, ILogger<Program> logger) =>
-{
-    using var ingestActivity = Telemetry.Activities.StartActivity("unitatlas.event.ingest");
-    ingestActivity?.SetTag("unitatlas.atlas_id", atlasId);
-    if (!TraceEventProjection.TryGetStatus(request.EventType ?? "", out var status))
-        return Results.ValidationProblem(new Dictionary<string, string[]> { ["eventType"] = [$"Allowed: {string.Join(", ", TraceEventProjection.EventTypes)}"] });
-    if (string.IsNullOrWhiteSpace(request.Location) || string.IsNullOrWhiteSpace(request.IdempotencyKey))
-        return Results.ValidationProblem(new Dictionary<string, string[]> { ["event"] = ["Location and idempotencyKey are required."] });
-
-    var locationIds = new[] { request.ReadPointId, request.BusinessLocationId }.OfType<Guid>().Distinct().ToArray();
-    if (locationIds.Length > 0 && await db.Locations.CountAsync(location => locationIds.Contains(location.Id)) != locationIds.Length)
-        return Results.ValidationProblem(new Dictionary<string, string[]> { ["location"] = ["readPointId and businessLocationId must belong to the active tenant."] });
-
-    var unit = await db.Units.SingleOrDefaultAsync(x => x.AtlasId == atlasId);
-    if (unit is null) return Problem("UNIT_NOT_FOUND", "Unit not found.", StatusCodes.Status404NotFound);
-    var operation = $"unit:{unit.Id}:event";
-    var requestHash = EventRequestHash.Compute(atlasId, request);
-    var idempotencyKey = request.IdempotencyKey.Trim();
-    var existing = await db.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Key == idempotencyKey);
-    if (existing is not null) return IdempotencyResult(existing, operation, requestHash);
-
-    await using var transaction = await db.Database.BeginTransactionAsync();
-    try
-    {
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM units WHERE \"Id\" = {unit.Id} FOR UPDATE");
-        existing = await db.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Key == idempotencyKey);
-        if (existing is not null)
-        {
-            await transaction.RollbackAsync();
-            return IdempotencyResult(existing, operation, requestHash);
-        }
-
-        var sequence = (await db.TraceEvents.Where(x => x.UnitId == unit.Id).MaxAsync(x => (long?)x.Sequence) ?? 0) + 1;
-        var trace = NewEvent(unit, request.EventType!.ToUpperInvariant(), request.Location!.Trim(), idempotencyKey, request.Actor?.Trim() ?? "operator", request.OccurredAt ?? DateTimeOffset.UtcNow, sequence);
-        trace.ActorSubject = tenantContext.UserSubject;
-        trace.ReadPointId = request.ReadPointId;
-        trace.BusinessLocationId = request.BusinessLocationId;
-        trace.BusinessStep = request.BusinessStep?.Trim();
-        trace.Disposition = request.Disposition?.Trim();
-        trace.SourceSystem = request.SourceSystem?.Trim() ?? "unitatlas";
-        var state = await db.UnitStates.SingleAsync(x => x.UnitId == unit.Id);
-        TraceEventProjection.Apply(state, trace, status);
-        var now = DateTimeOffset.UtcNow;
-        db.AddRange(trace,
-            new IdempotencyRecord
-            {
-                Id = Guid.NewGuid(),
-                TenantId = unit.TenantId,
-                Key = idempotencyKey,
-                Operation = operation,
-                RequestHash = requestHash,
-                ResourceId = trace.Id,
-                ResponseStatus = StatusCodes.Status201Created,
-                CreatedAt = now,
-                ExpiresAt = now.AddHours(24)
-            },
-            new AuditEntry
-            {
-                Id = Guid.NewGuid(),
-                TenantId = unit.TenantId,
-                ActorSubject = tenantContext.UserSubject,
-                Action = "trace_event.recorded",
-                EntityType = "TraceEvent",
-                EntityId = trace.Id,
-                DataJson = JsonSerializer.Serialize(new { unit.AtlasId, trace.EventType, trace.OccurredAt }),
-                CreatedAt = now
-            },
-            new OutboxMessage
-            {
-                Id = Guid.NewGuid(),
-                TenantId = unit.TenantId,
-                CorrelationId = trace.Id,
-                Source = "unitatlas",
-                Type = "trace_event.recorded",
-                SubjectType = "TraceEvent",
-                SubjectId = trace.Id.ToString(),
-                PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId }),
-                CreatedAt = now
-            });
-        await db.SaveChangesAsync();
-        await transaction.CommitAsync();
-        ingestActivity?.SetTag("unitatlas.event_id", trace.Id);
-        ingestActivity?.SetTag("unitatlas.event_type", trace.EventType);
-        Telemetry.EventsRecorded.Add(1, new KeyValuePair<string, object?>("event.type", trace.EventType));
-        logger.LogInformation("Trace event recorded {EventId} for {AtlasId}", trace.Id, unit.AtlasId);
-        return Results.Created($"/api/v1/units/{atlasId}", new { trace.Id, duplicate = false });
-    }
-    catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-    {
-        await transaction.RollbackAsync();
-        db.ChangeTracker.Clear();
-        var winner = await db.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Key == idempotencyKey);
-        if (winner is null) throw;
-        return IdempotencyResult(winner, operation, requestHash);
-    }
-}).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("event-ingest");
+api.MapPost("/units/{atlasId}/events", TraceEventEndpoints.RecordEvent)
+    .RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("event-ingest");
 
 app.MapPackagingEndpoints();
 app.MapIntegrationEndpoints();
@@ -458,12 +363,6 @@ static UnitState NewState(TrackedUnit unit, TraceEvent trace, string status) => 
     CurrentSequence = trace.Sequence,
     UpdatedAt = trace.RecordedAt
 };
-
-static IResult IdempotencyResult(IdempotencyRecord record, string operation, string requestHash) =>
-    record.Operation == operation && record.RequestHash == requestHash
-        ? Results.Json(new { id = record.ResourceId, duplicate = true }, statusCode: record.ResponseStatus)
-        : Problem("IDEMPOTENCY_KEY_REUSED", "Idempotency key reused.", StatusCodes.Status409Conflict,
-            "The idempotency key was already used with a different request.");
 
 static IResult Problem(string code, string title, int status, string? detail = null) =>
     Results.Problem(statusCode: status, title: title, detail: detail,

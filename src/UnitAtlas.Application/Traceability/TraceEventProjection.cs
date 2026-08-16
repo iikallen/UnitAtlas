@@ -8,6 +8,8 @@ public static class TraceEventProjection
     {
         ["MANUFACTURED"] = "Manufactured",
         ["QUALITY_PASSED"] = "QC passed",
+        ["QUALITY_FAILED"] = "QC failed",
+        ["QUALITY_HOLD"] = "QC hold",
         ["PACKED"] = "Packed",
         ["MOVED_TO_WAREHOUSE"] = "In warehouse",
         ["SHIPPED"] = "Shipped",

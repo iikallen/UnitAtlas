@@ -33,6 +33,24 @@ class PendingCommand {
     createdAt: DateTime.now().toUtc(),
   );
 
+  factory PendingCommand.trace({
+    required String deviceId,
+    required String unitAtlasId,
+    required String eventType,
+    required String location,
+  }) => PendingCommand(
+    id: const Uuid().v7(),
+    deviceId: deviceId,
+    commandType: 'TRACE_EVENT',
+    payload: {
+      'unitAtlasId': unitAtlasId,
+      'eventType': eventType,
+      'location': location,
+      'occurredAt': DateTime.now().toUtc().toIso8601String(),
+    },
+    createdAt: DateTime.now().toUtc(),
+  );
+
   factory PendingCommand.fromDatabase(Map<String, Object?> row) =>
       PendingCommand(
         id: row['id']! as String,
