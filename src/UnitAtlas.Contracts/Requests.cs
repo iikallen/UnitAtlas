@@ -26,5 +26,7 @@ public sealed record TraceEventResponse(
     long Sequence,
     Guid? ReadPointId,
     Guid? BusinessLocationId,
+    Guid? DeviceId,
+    Guid? StationId,
     string? BusinessStep,
     string? Disposition);

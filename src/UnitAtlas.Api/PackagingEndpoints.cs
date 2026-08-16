@@ -121,6 +121,7 @@ public static class PackagingEndpoints
                 ?? new AggregationChildren([], []);
             return new AggregationEventResponse(x.Id, x.Action, x.OccurredAt, x.RecordedAt, x.Sequence,
                 x.ActorSubject, x.SourceSystem, x.ReadPointId, x.BusinessLocationId,
+                x.DeviceId, x.StationId,
                 children.units, children.logisticUnits);
         }).ToArray();
 
@@ -128,11 +129,27 @@ public static class PackagingEndpoints
             unitChildren.Concat(logisticChildren).ToArray(), events));
     }
 
-    internal static async Task<IResult> RecordAggregation(
+    internal static Task<IResult> RecordAggregation(
         string code,
         AggregationRequest request,
         UnitAtlasDb db,
         ITenantContext tenantContext)
+        => RecordAggregationCore(code, request, db, tenantContext, null);
+
+    internal static Task<IResult> RecordCaptureAggregation(
+        string code,
+        AggregationRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenantContext,
+        CaptureDeviceContext capture)
+        => RecordAggregationCore(code, request, db, tenantContext, capture);
+
+    private static async Task<IResult> RecordAggregationCore(
+        string code,
+        AggregationRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenantContext,
+        CaptureDeviceContext? capture)
     {
         var action = request.Action?.Trim().ToUpperInvariant();
         var idempotencyKey = request.IdempotencyKey?.Trim();
@@ -212,6 +229,8 @@ public static class PackagingEndpoints
                 IdempotencyKey = idempotencyKey!,
                 ReadPointId = request.ReadPointId,
                 BusinessLocationId = request.BusinessLocationId,
+                DeviceId = capture?.DeviceId,
+                StationId = capture?.StationId,
                 CorrelationId = Guid.CreateVersion7(),
                 ChildrenJson = JsonSerializer.Serialize(new AggregationChildren(unitCodes, logisticCodes))
             };

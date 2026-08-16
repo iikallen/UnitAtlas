@@ -21,6 +21,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options => options.IncludeScopes = true);
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddScoped<CaptureDeviceContext>();
 builder.Services.AddUnitAtlasSecurity(builder.Configuration, builder.Environment);
 builder.Services.AddOpenApi();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -295,6 +296,7 @@ app.MapIntegrationEndpoints();
 app.MapOneCEndpoints();
 app.MapEpcisEndpoints();
 app.MapPrintingEndpoints();
+app.MapDeviceEndpoints();
 app.MapCaptureEndpoints();
 app.Run();
 
@@ -317,7 +319,7 @@ static IQueryable<TraceEventResponse> EventQuery(UnitAtlasDb db, Guid unitId) =>
     .ThenByDescending(trace => trace.Sequence)
     .Select(trace => new TraceEventResponse(trace.Id, trace.EventType, trace.Location, trace.Actor, trace.ActorSubject,
         trace.SourceSystem, trace.OccurredAt, trace.RecordedAt, trace.Sequence, trace.ReadPointId,
-        trace.BusinessLocationId, trace.BusinessStep, trace.Disposition));
+        trace.BusinessLocationId, trace.DeviceId, trace.StationId, trace.BusinessStep, trace.Disposition));
 
 static async Task<IResult> InternalPassport(string atlasId, UnitAtlasDb db)
 {

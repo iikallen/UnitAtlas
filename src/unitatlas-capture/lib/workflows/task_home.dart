@@ -65,6 +65,7 @@ class _TaskHomeState extends State<TaskHome> {
         padding: const EdgeInsets.all(16),
         children: [
           Text('Устройство: ${widget.repository.deviceId}'),
+          Text('Станция: ${widget.repository.station ?? 'не загружена'}'),
           Text('Очередь: $pending · Конфликты: $conflicts'),
           const SizedBox(height: 8),
           Row(

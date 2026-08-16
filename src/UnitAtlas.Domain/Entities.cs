@@ -72,6 +72,8 @@ public sealed class TraceEvent
     public string? Disposition { get; set; }
     public Guid? ReadPointId { get; set; }
     public Guid? BusinessLocationId { get; set; }
+    public Guid? DeviceId { get; set; }
+    public Guid? StationId { get; set; }
     public Guid? CorrelationId { get; set; }
     public string? MetadataJson { get; set; }
 }

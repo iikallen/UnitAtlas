@@ -36,6 +36,10 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     public DbSet<PrintJob> PrintJobs => Set<PrintJob>();
     public DbSet<PrintJobItem> PrintJobItems => Set<PrintJobItem>();
     public DbSet<PrintAttempt> PrintAttempts => Set<PrintAttempt>();
+    public DbSet<Device> Devices => Set<Device>();
+    public DbSet<Station> Stations => Set<Station>();
+    public DbSet<DeviceEnrollment> DeviceEnrollments => Set<DeviceEnrollment>();
+    public DbSet<DeviceSession> DeviceSessions => Set<DeviceSession>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -85,6 +89,14 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
             .OnDelete(DeleteBehavior.Restrict);
         model.Entity<TraceEvent>().HasOne<Location>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.BusinessLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<TraceEvent>().HasOne<Device>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<TraceEvent>().HasOne<Station>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.StationId })
             .HasPrincipalKey(x => new { x.TenantId, x.Id })
             .OnDelete(DeleteBehavior.Restrict);
         model.Entity<TraceEvent>().HasQueryFilter(x => x.TenantId == CurrentTenantId);
@@ -144,7 +156,8 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
 
         TenantEntity<OutboxMessage>(model, "outbox_messages");
         model.Entity<OutboxMessage>().Property(x => x.PayloadJson).HasColumnType("jsonb");
-        model.Entity<OutboxMessage>().HasIndex(x => new { x.TenantId, x.CreatedAt });
+        model.Entity<OutboxMessage>().Property(x => x.Sequence).UseIdentityByDefaultColumn();
+        model.Entity<OutboxMessage>().HasIndex(x => new { x.TenantId, x.Sequence }).IsUnique();
 
         TenantEntity<ExternalReference>(model, "external_references");
         model.Entity<ExternalReference>().HasIndex(x => new { x.TenantId, x.System, x.EntityType, x.Value }).IsUnique();
@@ -193,6 +206,14 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
             .OnDelete(DeleteBehavior.Restrict);
         model.Entity<AggregationEvent>().HasOne<Location>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.BusinessLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<AggregationEvent>().HasOne<Device>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<AggregationEvent>().HasOne<Station>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.StationId })
             .HasPrincipalKey(x => new { x.TenantId, x.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
@@ -248,6 +269,40 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
         TenantEntity<PrintAttempt>(model, "print_attempts");
         model.Entity<PrintAttempt>().HasOne<PrintJob>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.PrintJobId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<Device>(model, "devices");
+        model.Entity<Device>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        TenantEntity<Station>(model, "stations");
+        model.Entity<Station>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+        model.Entity<Station>().HasOne<Site>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.SiteId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<Station>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ReadPointId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<Station>().HasOne<Location>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.BusinessLocationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<DeviceEnrollment>(model, "device_enrollments");
+        model.Entity<DeviceEnrollment>().HasIndex(x => new { x.TenantId, x.EnrollmentCodeHash }).IsUnique();
+        model.Entity<DeviceEnrollment>().HasOne<Device>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<DeviceEnrollment>().HasOne<Station>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.StationId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<DeviceSession>(model, "device_sessions");
+        model.Entity<DeviceSession>().HasIndex(x => new { x.TenantId, x.TokenHash }).IsUnique();
+        model.Entity<DeviceSession>().HasIndex(x => new { x.TenantId, x.DeviceId, x.RevokedAt });
+        model.Entity<DeviceSession>().HasOne<Device>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.DeviceId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<DeviceSession>().HasOne<Station>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.StationId })
             .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
     }
 

@@ -84,6 +84,7 @@ public sealed class OutboxMessage
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
+    public long Sequence { get; set; }
     public Guid CorrelationId { get; set; }
     public required string Source { get; set; }
     public required string Type { get; set; }

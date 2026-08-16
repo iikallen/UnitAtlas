@@ -12,12 +12,30 @@ namespace UnitAtlas.Api;
 
 internal static class TraceEventEndpoints
 {
-    internal static async Task<IResult> RecordEvent(
+    internal static Task<IResult> RecordEvent(
         string atlasId,
         EventRequest request,
         UnitAtlasDb db,
         ITenantContext tenantContext,
         ILogger<Program> logger)
+        => RecordEventCore(atlasId, request, db, tenantContext, logger, null);
+
+    internal static Task<IResult> RecordCaptureEvent(
+        string atlasId,
+        EventRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenantContext,
+        ILogger<Program> logger,
+        CaptureDeviceContext capture)
+        => RecordEventCore(atlasId, request, db, tenantContext, logger, capture);
+
+    private static async Task<IResult> RecordEventCore(
+        string atlasId,
+        EventRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenantContext,
+        ILogger<Program> logger,
+        CaptureDeviceContext? capture)
     {
         using var ingestActivity = Telemetry.Activities.StartActivity("unitatlas.event.ingest");
         ingestActivity?.SetTag("unitatlas.atlas_id", atlasId);
@@ -59,6 +77,7 @@ internal static class TraceEventEndpoints
                 ActorSubject = tenantContext.UserSubject, SourceSystem = request.SourceSystem?.Trim() ?? "unitatlas",
                 OccurredAt = request.OccurredAt ?? now, RecordedAt = now, Sequence = sequence,
                 ReadPointId = request.ReadPointId, BusinessLocationId = request.BusinessLocationId,
+                DeviceId = capture?.DeviceId, StationId = capture?.StationId,
                 BusinessStep = request.BusinessStep?.Trim(), Disposition = request.Disposition?.Trim()
             };
             var state = await db.UnitStates.SingleAsync(x => x.UnitId == unit.Id);
@@ -80,7 +99,7 @@ internal static class TraceEventEndpoints
                 {
                     Id = Guid.CreateVersion7(), TenantId = unit.TenantId, CorrelationId = trace.Id,
                     Source = "unitatlas", Type = "trace_event.recorded", SubjectType = "TraceEvent", SubjectId = trace.Id.ToString(),
-                    PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId }), CreatedAt = now
+                    PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId, state.Status, state.Location }), CreatedAt = now
                 });
             await db.SaveChangesAsync();
             await transaction.CommitAsync();

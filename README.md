@@ -66,6 +66,8 @@ Capture baseline: `GET /api/v1/capture/bootstrap`, `POST /resolve` и `POST /syn
 
 Scan workflows: Capture принимает camera, keyboard-wedge и Android intent scans, разбирает UnitAtlas/GS1 DataMatrix/EAN/GS1-128/SSCC и даёт task-oriented экраны ОТК, упаковки, паллетизации, перемещения, отгрузки, приёмки и поиска. `POST /api/v1/capture/quality` и `/move` используют тот же immutable trace ledger.
 
+Device/station boundary: tenant admin создаёт `Device`, `Station` и одноразовый `DeviceEnrollment`; `POST /api/v1/capture/enroll` выдаёт revocable session token, который хранится клиентом в platform secure storage. Все Capture-команды требуют `X-UnitAtlas-Device-Session`, а server автоматически записывает device/station/readPoint/businessLocation. `GET /api/v1/capture/changes?after=<syncToken>` читает только новые outbox projections по монотонному token и не выгружает Event Ledger.
+
 ## Проверка
 
 ```powershell

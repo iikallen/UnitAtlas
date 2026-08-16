@@ -25,6 +25,8 @@ public sealed class AggregationEvent
     public required string ChildrenJson { get; set; }
     public Guid? ReadPointId { get; set; }
     public Guid? BusinessLocationId { get; set; }
+    public Guid? DeviceId { get; set; }
+    public Guid? StationId { get; set; }
     public Guid? CorrelationId { get; set; }
 }
 

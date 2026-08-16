@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../api/capture_api.dart';
 import '../capture/pending_command.dart';
 import '../database/local_database.dart';
@@ -9,14 +11,43 @@ class CaptureRepository {
     required this.database,
     required this.api,
     required this.deviceId,
+    required this.storage,
   });
 
   final LocalDatabase database;
   final CaptureApi api;
   final String deviceId;
+  final FlutterSecureStorage storage;
+  String? station;
 
-  Future<void> bootstrap() async =>
-      database.cacheBootstrap(await api.bootstrap());
+  bool get isEnrolled => api.hasSession;
+
+  Future<void> enroll(String code) async {
+    final response = await api.enroll(deviceId, code.trim());
+    final token = response['sessionToken'] as String;
+    api.sessionToken = token;
+    await storage.write(key: 'device_session', value: token);
+    await bootstrap();
+  }
+
+  Future<void> bootstrap() async {
+    final response = await api.bootstrap();
+    final stationRow = response['station'] as Map<String, dynamic>?;
+    station = stationRow == null
+        ? null
+        : '${stationRow['code']} · ${stationRow['name']}';
+    await database.cacheBootstrap(response);
+    await pullChanges();
+  }
+
+  Future<void> pullChanges() async {
+    var hasMore = true;
+    while (hasMore) {
+      final response = await api.changes(await database.checkpoint());
+      await database.applyChanges(response);
+      hasMore = response['hasMore'] as bool? ?? false;
+    }
+  }
 
   Future<void> queueAggregation({
     required String parentCode,
@@ -77,5 +108,6 @@ class CaptureRepository {
         break;
       }
     }
+    await pullChanges();
   }
 }

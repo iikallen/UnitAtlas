@@ -8,4 +8,4 @@ Run against local demo API:
 flutter run --dart-define=UNITATLAS_API_URL=http://10.0.2.2:8080 --dart-define=UNITATLAS_DEVICE_ID=DEMO-ANDROID
 ```
 
-Production device enrollment and OIDC session acquisition are not simulated in this slice; they are gates of the device/station stage.
+Tenant admin first creates the matching device/station and one-time enrollment code. The app exchanges that code on its first run and keeps the revocable device session in platform secure storage. The API still requires the normal user OIDC access token outside development demo mode; `UNITATLAS_ACCESS_TOKEN` is only a local integration hook and must not be baked into a production APK.
