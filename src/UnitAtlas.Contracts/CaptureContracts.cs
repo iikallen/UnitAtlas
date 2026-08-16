@@ -17,6 +17,13 @@ public sealed record CaptureSyncRequest(
 
 public sealed record CaptureResolveRequest(string? Code);
 
+public sealed record CaptureProductionRequest(
+    Guid CommandId,
+    string? DeviceId,
+    string? ScannedCode,
+    string? Location,
+    DateTimeOffset? OccurredAt);
+
 public sealed record CaptureQualityRequest(
     Guid CommandId,
     string? DeviceId,

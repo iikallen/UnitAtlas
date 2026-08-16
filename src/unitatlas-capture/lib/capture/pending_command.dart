@@ -51,6 +51,22 @@ class PendingCommand {
     createdAt: DateTime.now().toUtc(),
   );
 
+  factory PendingCommand.production({
+    required String deviceId,
+    required String scannedCode,
+    required String location,
+  }) => PendingCommand(
+    id: const Uuid().v7(),
+    deviceId: deviceId,
+    commandType: 'PRODUCTION',
+    payload: {
+      'scannedCode': scannedCode,
+      'location': location,
+      'occurredAt': DateTime.now().toUtc().toIso8601String(),
+    },
+    createdAt: DateTime.now().toUtc(),
+  );
+
   factory PendingCommand.fromDatabase(Map<String, Object?> row) =>
       PendingCommand(
         id: row['id']! as String,

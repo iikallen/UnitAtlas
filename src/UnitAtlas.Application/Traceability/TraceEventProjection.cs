@@ -7,6 +7,7 @@ public static class TraceEventProjection
     private static readonly IReadOnlyDictionary<string, string> Statuses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["MANUFACTURED"] = "Manufactured",
+        ["COMMISSIONED"] = "Commissioned",
         ["QUALITY_PASSED"] = "QC passed",
         ["QUALITY_FAILED"] = "QC failed",
         ["QUALITY_HOLD"] = "QC hold",

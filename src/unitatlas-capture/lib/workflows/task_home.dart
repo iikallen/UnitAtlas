@@ -104,8 +104,8 @@ class _TaskHomeState extends State<TaskHome> {
           _Task(
             'Производство',
             Icons.precision_manufacturing,
-            null,
-            subtitle: 'Активируется пилотным профилем 1С',
+            () => open(ProductionWorkflow(repository: widget.repository)),
+            subtitle: 'Подтвердить напечатанную этикетку',
           ),
           _Task(
             'ОТК',
@@ -221,6 +221,58 @@ class _Task extends StatelessWidget {
           ? const Icon(Icons.lock_clock)
           : const Icon(Icons.chevron_right),
       onTap: onTap,
+    ),
+  );
+}
+
+class ProductionWorkflow extends StatefulWidget {
+  const ProductionWorkflow({super.key, required this.repository});
+  final CaptureRepository repository;
+  @override
+  State<ProductionWorkflow> createState() => _ProductionWorkflowState();
+}
+
+class _ProductionWorkflowState extends State<ProductionWorkflow> {
+  String? scannedCode;
+  String location = '';
+
+  Future<void> finish() async {
+    if (scannedCode == null || location.trim().isEmpty) return;
+    await widget.repository.queueProduction(
+      scannedCode: scannedCode!,
+      location: location.trim(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Производство')),
+    body: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ScanInput(
+            label: 'Сканируйте напечатанную этикетку',
+            onScan: (raw) => setState(
+              () => scannedCode = ScanParser.parse(raw).identifier,
+            ),
+          ),
+          Text('Изделие: ${scannedCode ?? '—'}'),
+          TextField(
+            decoration: const InputDecoration(labelText: 'Производственная линия'),
+            onChanged: (value) => location = value,
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: scannedCode != null && location.trim().isNotEmpty
+                ? finish
+                : null,
+            child: const Text('ПОДТВЕРДИТЬ МАРКИРОВКУ'),
+          ),
+        ],
+      ),
     ),
   );
 }

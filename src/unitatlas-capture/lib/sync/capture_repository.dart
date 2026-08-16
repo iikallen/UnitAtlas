@@ -75,10 +75,25 @@ class CaptureRepository {
     ),
   );
 
+  Future<void> queueProduction({
+    required String scannedCode,
+    required String location,
+  }) => database.enqueue(
+    PendingCommand.production(
+      deviceId: deviceId,
+      scannedCode: scannedCode,
+      location: location,
+    ),
+  );
+
   Future<void> sync() async {
     for (final command in await database.pending()) {
       try {
-        await api.sync(command);
+        if (command.commandType == 'PRODUCTION') {
+          await api.production(command);
+        } else {
+          await api.sync(command);
+        }
         await database.updateResult(command.id, 'ACKNOWLEDGED', null);
       } on CaptureApiException catch (error) {
         var detail = error.body;

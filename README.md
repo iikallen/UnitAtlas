@@ -62,7 +62,7 @@ Integration operations: `/integrations` показывает enabled state, last
 
 Printing: `GET /api/v1/print-setup`, `POST/GET /api/v1/print-jobs` и `POST /api/v1/print-jobs/{id}/attempts`. `INTERNAL` payload не выдаётся за GS1; профиль `GS1` требует licensed Company Prefix, а GTIN/SSCC должны совпадать с ним и проходить check digit.
 
-Capture baseline: `GET /api/v1/capture/bootstrap`, `POST /resolve` и `POST /sync`. Клиент в `src/unitatlas-capture` сначала сохраняет UUIDv7-команду в SQLite и только затем отправляет её; повтор использует тот же server idempotency key, а 409 остаётся видимым конфликтом.
+Capture baseline: `GET /api/v1/capture/bootstrap`, `POST /resolve`, `POST /sync` и `POST /production`. Клиент в `src/unitatlas-capture` сначала сохраняет UUIDv7-команду в SQLite и только затем отправляет её; повтор использует тот же server idempotency key, а 409 остаётся видимым конфликтом. Production confirmation принимает скан только для Unit с завершённым `PRINTED` job и записывает `COMMISSIONED` в canonical trace ledger.
 
 Scan workflows: Capture принимает camera, keyboard-wedge и Android intent scans, разбирает UnitAtlas/GS1 DataMatrix/EAN/GS1-128/SSCC и даёт task-oriented экраны ОТК, упаковки, паллетизации, перемещения, отгрузки, приёмки и поиска. `POST /api/v1/capture/quality` и `/move` используют тот же immutable trace ledger.
 

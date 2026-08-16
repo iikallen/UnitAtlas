@@ -41,6 +41,8 @@ internal static class TraceEventEndpoints
         ingestActivity?.SetTag("unitatlas.atlas_id", atlasId);
         if (!TraceEventProjection.TryGetStatus(request.EventType ?? "", out var status))
             return Validation("eventType", $"Allowed: {string.Join(", ", TraceEventProjection.EventTypes)}");
+        if (capture is null && string.Equals(request.EventType?.Trim(), "COMMISSIONED", StringComparison.OrdinalIgnoreCase))
+            return Problem("COMMISSIONING_REQUIRES_CAPTURE", "Commissioning requires a verified Capture production scan.", 409);
         if (string.IsNullOrWhiteSpace(request.Location) || string.IsNullOrWhiteSpace(request.IdempotencyKey))
             return Validation("event", "Location and idempotencyKey are required.");
 
@@ -65,6 +67,19 @@ internal static class TraceEventEndpoints
             {
                 await transaction.RollbackAsync();
                 return Replay(existing, operation, requestHash);
+            }
+            if (string.Equals(request.EventType?.Trim(), "COMMISSIONED", StringComparison.OrdinalIgnoreCase))
+            {
+                var priorConfirmation = await db.TraceEvents.AsNoTracking()
+                    .Where(x => x.UnitId == unit.Id && x.EventType == "COMMISSIONED")
+                    .OrderBy(x => x.Sequence)
+                    .Select(x => (Guid?)x.Id)
+                    .FirstOrDefaultAsync();
+                if (priorConfirmation is not null)
+                {
+                    await transaction.RollbackAsync();
+                    return Results.Ok(new { id = priorConfirmation.Value, duplicate = true });
+                }
             }
 
             var sequence = (await db.TraceEvents.Where(x => x.UnitId == unit.Id).MaxAsync(x => (long?)x.Sequence) ?? 0) + 1;

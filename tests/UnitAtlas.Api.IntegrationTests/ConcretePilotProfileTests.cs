@@ -41,6 +41,7 @@ public sealed class ConcretePilotProfileTests
 
         var setup = await client.GetFromJsonAsync<JsonElement>("/api/v1/print-setup");
         var templateId = Find(setup.GetProperty("templates"), "code", "GS1_DATAMATRIX_UNIT").GetProperty("id").GetGuid();
+        var logisticsTemplateId = Find(setup.GetProperty("templates"), "code", "GS1_LOGISTICS_LABEL").GetProperty("id").GetGuid();
         var printerId = Find(setup.GetProperty("printers"), "code", "DEMO-EDGE").GetProperty("id").GetGuid();
         var profileResponse = await client.PostAsJsonAsync("/api/v1/print-profiles", new
         {
@@ -98,25 +99,55 @@ public sealed class ConcretePilotProfileTests
         var job = await client.GetFromJsonAsync<JsonElement>($"/api/v1/print-jobs/{printJobId}");
         Assert.Equal(100, job.GetProperty("items").GetArrayLength());
         Assert.All(job.GetProperty("items").EnumerateArray(), item => Assert.StartsWith("01", item.GetProperty("payload").GetString()));
+        var device = await Enroll();
+        var bypass = await client.PostAsJsonAsync($"/api/v1/units/{units[0].AtlasId}/events", new
+        {
+            eventType = "COMMISSIONED", location = "Manual bypass", idempotencyKey = $"bypass:{suffix}"
+        });
+        Assert.Equal(HttpStatusCode.Conflict, bypass.StatusCode);
+        Assert.Equal("COMMISSIONING_REQUIRES_CAPTURE", (await bypass.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        var notPrinted = await client.PostAsJsonAsync("/api/v1/capture/production", new
+        {
+            commandId = Guid.NewGuid(), deviceId = device, scannedCode = units[0].Serial, location = "Pilot line"
+        });
+        Assert.Equal(HttpStatusCode.Conflict, notPrinted.StatusCode);
+        Assert.Equal("LABEL_NOT_PRINTED", (await notPrinted.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync($"/api/v1/print-jobs/{printJobId}/attempts", new { status = "DISPATCHED" })).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync($"/api/v1/print-jobs/{printJobId}/attempts", new { status = "PRINTED" })).StatusCode);
 
-        var device = await Enroll();
-        foreach (var unit in units)
+        for (var index = 0; index < units.Length; index++)
         {
-            var quality = await client.PostAsJsonAsync("/api/v1/capture/quality", new
+            var commandId = Guid.NewGuid();
+            var confirmation = new
             {
-                commandId = Guid.NewGuid(), deviceId = device, unitAtlasId = unit.AtlasId,
-                outcome = "PASS", location = "Pilot scan confirmation"
-            });
-            Assert.Equal(HttpStatusCode.Created, quality.StatusCode);
+                commandId, deviceId = device, scannedCode = units[index].Serial, location = "Pilot line",
+                occurredAt = "2026-08-16T11:00:00Z"
+            };
+            Assert.Equal(HttpStatusCode.Created,
+                (await client.PostAsJsonAsync("/api/v1/capture/production", confirmation)).StatusCode);
+            if (index == 0)
+            {
+                var replayConfirmation = await client.PostAsJsonAsync("/api/v1/capture/production", confirmation);
+                Assert.Equal(HttpStatusCode.Created, replayConfirmation.StatusCode);
+                Assert.True((await replayConfirmation.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
+                var repeatedScan = await client.PostAsJsonAsync("/api/v1/capture/production", new
+                {
+                    commandId = Guid.NewGuid(), deviceId = device, scannedCode = units[index].Serial,
+                    location = "Pilot line", occurredAt = "2026-08-16T11:00:00Z"
+                });
+                Assert.Equal(HttpStatusCode.OK, repeatedScan.StatusCode);
+                Assert.True((await repeatedScan.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
+            }
         }
+        Assert.Equal("Commissioned", (await client.GetFromJsonAsync<JsonElement>($"/api/v1/units/{units[0].AtlasId}"))
+            .GetProperty("state").GetProperty("status").GetString());
 
         var boxes = Enumerable.Range(1, 10).Select(index => $"BOX-5812-{suffix[..8]}-{index:D2}").ToArray();
         foreach (var box in boxes)
             Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/v1/logistic-units", new { code = box, type = "BOX" })).StatusCode);
         var pallet = $"PALLET-5812-{suffix[..8]}";
-        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET" })).StatusCode);
+        var sscc = Sscc(suffix);
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET", sscc })).StatusCode);
         for (var index = 0; index < boxes.Length; index++)
         {
             var packed = await client.PostAsJsonAsync("/api/v1/capture/sync", new
@@ -131,6 +162,15 @@ public sealed class ConcretePilotProfileTests
             commandId = Guid.NewGuid(), deviceId = device, commandType = "AGGREGATE",
             parentCode = pallet, action = "ADD", logisticUnitCodes = boxes
         })).StatusCode);
+        var logisticsJobResponse = await client.PostAsJsonAsync("/api/v1/print-jobs", new
+        {
+            templateId = logisticsTemplateId, profileId = printProfileId, printerId,
+            entityType = "LOGISTIC_UNIT", code = pallet, copies = 1, idempotencyKey = $"pallet-label:{suffix}"
+        });
+        Assert.Equal(HttpStatusCode.Created, logisticsJobResponse.StatusCode);
+        var logisticsJobId = (await logisticsJobResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var logisticsJob = await client.GetFromJsonAsync<JsonElement>($"/api/v1/print-jobs/{logisticsJobId}");
+        Assert.Equal($"00{sscc}", logisticsJob.GetProperty("items")[0].GetProperty("payload").GetString());
         var conflict = await client.PostAsJsonAsync("/api/v1/capture/sync", new
         {
             commandId = Guid.NewGuid(), deviceId = device, commandType = "AGGREGATE",
@@ -210,6 +250,14 @@ public sealed class ConcretePilotProfileTests
         var digits = new string(seed.Where(char.IsDigit).ToArray()).PadRight(6, '0')[..6];
         var body = $"0487123{digits}";
         var sum = body.Select((digit, index) => (digit - '0') * ((14 - index) % 2 == 0 ? 3 : 1)).Sum();
+        return body + (10 - sum % 10) % 10;
+    }
+
+    private static string Sscc(string seed)
+    {
+        var digits = new string(seed.Where(char.IsDigit).ToArray()).PadRight(10, '0')[..10];
+        var body = $"0487123{digits}";
+        var sum = body.Select((digit, index) => (digit - '0') * ((18 - index) % 2 == 0 ? 3 : 1)).Sum();
         return body + (10 - sum % 10) % 10;
     }
 }
