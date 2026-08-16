@@ -86,6 +86,9 @@ class CaptureRepository {
     ),
   );
 
+  Future<void> cancelConflict(String commandId) =>
+      database.cancelCommand(commandId);
+
   Future<void> sync() async {
     for (final command in await database.pending()) {
       try {
@@ -99,11 +102,14 @@ class CaptureRepository {
         var detail = error.body;
         if (error.statusCode == 409) {
           final units = command.payload['unitAtlasIds'] as List<dynamic>? ?? [];
-          if (units.isNotEmpty) {
+          final logisticUnits =
+              command.payload['logisticUnitCodes'] as List<dynamic>? ?? [];
+          final identifiers = units.isNotEmpty ? units : logisticUnits;
+          if (identifiers.isNotEmpty) {
             try {
               detail = {
                 ...detail,
-                'server': await api.resolve(units.first as String),
+                'server': await api.resolve(identifiers.first as String),
               };
             } on CaptureApiException {
               // Keep the original authoritative conflict when resolution fails.

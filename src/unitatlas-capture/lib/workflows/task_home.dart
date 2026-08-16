@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -195,21 +196,104 @@ class _TaskHomeState extends State<TaskHome> {
             ...commands
                 .where((x) => x.syncStatus == 'CONFLICT')
                 .map(
-                  (x) => ListTile(
-                    leading: const Icon(
-                      Icons.warning_amber,
-                      color: Colors.orange,
+                  (command) => _ConflictCard(
+                    command: command,
+                    onCancel: () => run(
+                      () => widget.repository.cancelConflict(command.id),
+                      'Локальная операция отменена',
                     ),
-                    title: Text(
-                      x.payload['unitAtlasIds']?.toString() ??
-                          x.payload['unitAtlasId']?.toString() ??
-                          x.id,
-                    ),
-                    subtitle: Text(x.lastError ?? 'Конфликт'),
                   ),
                 ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _ConflictCard extends StatelessWidget {
+  const _ConflictCard({required this.command, required this.onCancel});
+
+  final PendingCommand command;
+  final Future<void> Function() onCancel;
+
+  Map<String, dynamic> get detail {
+    try {
+      final value = jsonDecode(command.lastError ?? '{}');
+      return value is Map<String, dynamic> ? value : const {};
+    } on FormatException {
+      return const {};
+    }
+  }
+
+  Map<String, dynamic> get server {
+    final value = detail['server'];
+    return value is Map<String, dynamic> ? value : const {};
+  }
+
+  String get code =>
+      (command.payload['unitAtlasIds'] as List<dynamic>?)?.firstOrNull
+          ?.toString() ??
+      (command.payload['logisticUnitCodes'] as List<dynamic>?)?.firstOrNull
+          ?.toString() ??
+      command.payload['unitAtlasId']?.toString() ??
+      command.id;
+
+  void showDetails(BuildContext context) {
+    final serverParent = server['serverParent']?.toString() ?? 'без упаковки';
+    final localParent = command.payload['parentCode']?.toString() ?? '—';
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(code),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Серверная упаковка: $serverParent'),
+            Text('Локальная операция: $localParent'),
+            if (server['product'] != null) Text('Товар: ${server['product']}'),
+            if (server['status'] != null) Text('Статус: ${server['status']}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ЗАКРЫТЬ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final serverParent = server['serverParent']?.toString() ?? 'без упаковки';
+    final localParent = command.payload['parentCode']?.toString() ?? '—';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.warning_amber, color: Colors.orange),
+              title: Text(code),
+              subtitle: Text('Сервер: $serverParent\nЛокально: $localParent'),
+            ),
+            Wrap(
+              alignment: WrapAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => showDetails(context),
+                  child: const Text('ПОСМОТРЕТЬ ИЗДЕЛИЕ'),
+                ),
+                TextButton(onPressed: onCancel, child: const Text('ОТМЕНИТЬ')),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
