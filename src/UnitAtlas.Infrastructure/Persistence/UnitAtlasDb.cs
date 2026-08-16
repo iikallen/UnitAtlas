@@ -30,6 +30,12 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     public DbSet<LogisticUnit> LogisticUnits => Set<LogisticUnit>();
     public DbSet<AggregationEvent> AggregationEvents => Set<AggregationEvent>();
     public DbSet<LogisticUnitContent> LogisticUnitContents => Set<LogisticUnitContent>();
+    public DbSet<LabelTemplate> LabelTemplates => Set<LabelTemplate>();
+    public DbSet<PrintProfile> PrintProfiles => Set<PrintProfile>();
+    public DbSet<Printer> Printers => Set<Printer>();
+    public DbSet<PrintJob> PrintJobs => Set<PrintJob>();
+    public DbSet<PrintJobItem> PrintJobItems => Set<PrintJobItem>();
+    public DbSet<PrintAttempt> PrintAttempts => Set<PrintAttempt>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -212,6 +218,37 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
             .HasForeignKey(x => new { x.TenantId, x.AddedByEventId })
             .HasPrincipalKey(x => new { x.TenantId, x.Id })
             .OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<LabelTemplate>(model, "label_templates");
+        model.Entity<LabelTemplate>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        TenantEntity<PrintProfile>(model, "print_profiles");
+        model.Entity<PrintProfile>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        TenantEntity<Printer>(model, "printers");
+        model.Entity<Printer>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+
+        TenantEntity<PrintJob>(model, "print_jobs");
+        model.Entity<PrintJob>().HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique();
+        model.Entity<PrintJob>().HasOne<LabelTemplate>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.TemplateId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<PrintJob>().HasOne<PrintProfile>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.ProfileId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<PrintJob>().HasOne<Printer>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.PrinterId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<PrintJobItem>(model, "print_job_items");
+        model.Entity<PrintJobItem>().HasOne<PrintJob>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.PrintJobId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<PrintAttempt>(model, "print_attempts");
+        model.Entity<PrintAttempt>().HasOne<PrintJob>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.PrintJobId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
     }
 
     private void TenantEntity<TEntity>(ModelBuilder model, string table) where TEntity : class

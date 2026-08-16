@@ -13,6 +13,7 @@
 - EPCIS 2.0.1 JSON/JSON-LD capture/export для ObjectEvent и AggregationEvent;
 - reference 1C adapter поверх durable Inbox/Outbox без зависимости core от редакции 1С;
 - integration operations workspace `/integrations`, delivery metrics, dead-letter retry и single regulatory gateway mode;
+- idempotent label/print jobs для Unit и logistics labels с явными `INTERNAL | GS1` профилями и append-only попытками;
 - request-hash idempotency с 409 при повторном key и другом body;
 - versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
 - Problem Details, cursor pagination, rate limits, security headers и JSON logs;
@@ -57,6 +58,8 @@ EPCIS supported subset: `GET/POST /api/v1/epcis/documents`. Export возвра�
 1C reference import: `POST /api/v1/integration-inbox/{system}/1c` с `X-External-Message-Id`. Поддержаны `product.upsert`, `production.completed`, `shipment.recorded` и `receipt.recorded`; transport/profile конкретной базы 1С выбирается для пилота.
 
 Integration operations: `/integrations` показывает enabled state, last success, backlog, retry/dead-letter counts и позволяет безопасно повторить dead letter. Tenant mode `NONE | ONE_C | DIRECT_IS_MPT` исключает одновременный regulatory route; direct IS MPT adapter не входит в v0.3.0.
+
+Printing: `GET /api/v1/print-setup`, `POST/GET /api/v1/print-jobs` и `POST /api/v1/print-jobs/{id}/attempts`. `INTERNAL` payload не выдаётся за GS1; профиль `GS1` требует licensed Company Prefix, а GTIN/SSCC должны совпадать с ним и проходить check digit.
 
 ## Проверка
 
