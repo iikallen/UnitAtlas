@@ -56,6 +56,15 @@ class CaptureApi {
     return _json(response);
   }
 
+  Future<Map<String, dynamic>> production(PendingCommand command) async {
+    final response = await _client.post(
+      baseUri.resolve('/api/v1/capture/production'),
+      headers: _headers(json: true),
+      body: jsonEncode(command.toRequest()),
+    );
+    return _json(response);
+  }
+
   Future<Map<String, dynamic>> resolve(String code) async => _json(
     await _client.post(
       baseUri.resolve('/api/v1/capture/resolve'),

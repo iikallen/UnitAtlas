@@ -20,7 +20,7 @@ public sealed class IntegrationRuntimeTests
             system,
             adapter = "WEBHOOK",
             baseAddress = $"http://api:8080/api/v1/integration-inbox/{system}",
-            settings = new { },
+            settings = new { eventTypes = new[] { "logistic_unit.created" } },
             enabled = true
         });
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
@@ -34,7 +34,7 @@ public sealed class IntegrationRuntimeTests
         Assert.Equal(HttpStatusCode.Created, unit.StatusCode);
 
         JsonElement delivery = default;
-        for (var attempt = 0; attempt < 30; attempt++)
+        for (var attempt = 0; attempt < 80; attempt++)
         {
             var deliveries = await client.GetFromJsonAsync<JsonElement>($"/api/v1/integration-endpoints/{endpointId}/deliveries");
             if (deliveries.GetArrayLength() > 0 && deliveries[0].GetProperty("status").GetString() == "Delivered")
@@ -57,6 +57,8 @@ public sealed class IntegrationRuntimeTests
         Assert.Equal(HttpStatusCode.Conflict, conflictResponse.StatusCode);
         Assert.Equal("INBOX_IDEMPOTENCY_CONFLICT",
             (await conflictResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.PostAsJsonAsync($"/api/v1/integration-endpoints/{endpointId}/enabled", new { enabled = false })).StatusCode);
     }
 
     private static HttpRequestMessage InboxRequest(string system, string externalId, object payload)

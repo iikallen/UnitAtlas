@@ -24,6 +24,7 @@ public static class CaptureEndpoints
         capture.MapGet("/changes", Changes).RequireAuthorization(Permissions.CaptureUse).RequireRateLimiting("capture-sync");
         capture.MapPost("/resolve", Resolve).RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("capture-sync");
         capture.MapPost("/sync", Sync).RequireAuthorization(Permissions.CaptureUse).RequireRateLimiting("capture-sync");
+        capture.MapPost("/production", Production).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("capture-sync");
         capture.MapPost("/quality", Quality).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("capture-sync");
         capture.MapPost("/move", Move).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("capture-sync");
         return app;
@@ -168,6 +169,33 @@ public static class CaptureEndpoints
         if (product is not null)
             return Results.Ok(new { kind = "PRODUCT", code = product.Sku, product.Name, product.Gtin, serverParent = (string?)null });
         return Problem("IDENTIFIER_NOT_FOUND", "No UnitAtlas object matches this identifier.", 404);
+    }
+
+    private static async Task<IResult> Production(
+        CaptureProductionRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenant,
+        CaptureDeviceContext capture,
+        ILogger<Program> logger)
+    {
+        var scannedCode = request.ScannedCode?.Trim();
+        if (request.CommandId == Guid.Empty || !MatchesDevice(request.DeviceId, capture)
+            || string.IsNullOrWhiteSpace(scannedCode) || string.IsNullOrWhiteSpace(request.Location))
+            return Validation("production", "commandId, matching deviceId, scannedCode and location are required.");
+
+        var unit = await db.Units.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.AtlasId == scannedCode || x.Serial == scannedCode);
+        if (unit is null) return Problem("UNIT_NOT_FOUND", "Scanned unit was not found.", 404);
+        var printed = await (from item in db.PrintJobItems.AsNoTracking()
+                             join job in db.PrintJobs.AsNoTracking() on item.PrintJobId equals job.Id
+                             where item.EntityType == "UNIT" && item.EntityId == unit.Id && job.Status == "PRINTED"
+                             select job.Id).AnyAsync();
+        if (!printed) return Problem("LABEL_NOT_PRINTED", "The unit has no completed print job.", 409);
+
+        return await TraceEventEndpoints.RecordCaptureEvent(unit.AtlasId, new EventRequest(
+            "COMMISSIONED", request.Location.Trim(), $"capture:{capture.DeviceId:N}:{request.CommandId:N}",
+            null, request.OccurredAt, capture.ReadPointId, capture.BusinessLocationId,
+            "commissioning", null, "unitatlas-capture"), db, tenant, logger, capture);
     }
 
     private static Task<IResult> Sync(

@@ -26,8 +26,10 @@ public sealed class CaptureTests
         var atlasId = (await unitResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("atlasId").GetString()!;
         var box = $"BOX-{Guid.NewGuid():N}";
         var otherBox = $"BOX-{Guid.NewGuid():N}";
+        var pallet = $"PALLET-{Guid.NewGuid():N}";
         Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = box, type = "BOX" })).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = otherBox, type = "BOX" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/logistic-units", new { code = pallet, type = "PALLET" })).StatusCode);
 
         var commandId = Guid.NewGuid();
         var command = new { commandId, deviceId = device.Code, commandType = "AGGREGATE", parentCode = box, action = "ADD", unitAtlasIds = new[] { atlasId } };
@@ -36,6 +38,16 @@ public sealed class CaptureTests
         var replay = await _client.PostAsJsonAsync("/api/v1/capture/sync", command);
         Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
         Assert.True((await replay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
+
+        var palletCommand = new
+        {
+            commandId = Guid.NewGuid(), deviceId = device.Code, commandType = "AGGREGATE",
+            parentCode = pallet, action = "ADD", logisticUnitCodes = new[] { box }
+        };
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/capture/sync", palletCommand)).StatusCode);
+        var palletReplay = await _client.PostAsJsonAsync("/api/v1/capture/sync", palletCommand);
+        Assert.Equal(HttpStatusCode.Created, palletReplay.StatusCode);
+        Assert.True((await palletReplay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
 
         var conflict = await _client.PostAsJsonAsync("/api/v1/capture/sync", new { commandId = Guid.NewGuid(), deviceId = device.Code, commandType = "AGGREGATE", parentCode = otherBox, action = "ADD", unitAtlasIds = new[] { atlasId } });
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
