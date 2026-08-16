@@ -1,4 +1,4 @@
-# UnitAtlas v0.1 pilot runbook
+# UnitAtlas v0.3 pilot runbook
 
 ## Production prerequisites
 
@@ -9,6 +9,8 @@
 - Для telemetry задаётся `OTEL_EXPORTER_OTLP_ENDPOINT`; стандартные `OTEL_EXPORTER_OTLP_*` параметры управляют protocol/headers.
 
 Секреты не сохраняются в Git, image, Compose override или логах.
+
+Integration credentials задаются runtime-конфигурацией `IntegrationSecrets__<SecretRef>`; endpoint хранит только `SecretRef`. Перед включением delivery проверить `/integrations`, backlog и regulatory gateway mode. Manual retry допускается только для `DeadLetter` после устранения причины; операция попадает в audit.
 
 ## Deploy and verify
 
@@ -34,9 +36,9 @@ docker compose exec -T db pg_restore -U unitatlas_admin --role=unitatlas `
   --no-owner --no-acl -d unitatlas_restore_rehearsal /tmp/unitatlas.dump
 ```
 
-Сравнить counts ключевых таблиц и `__EFMigrationsHistory`, forced RLS для 14 tenant-таблиц, четыре SELECT/INSERT policies и два append-only triggers, а также нулевую видимость runtime role без tenant context. Только после успешной проверки удалить временную БД и dump.
+Сравнить counts ключевых таблиц и `__EFMigrationsHistory`, forced RLS для всех tenant-таблиц, SELECT/INSERT policies и append-only triggers, а также нулевую видимость runtime role без tenant context. Только после успешной проверки удалить временную БД и dump.
 
-Rehearsal 2026-08-16 на чистом seed: source и restore совпали `[units=4, trace_events=7, audit_entries=0, outbox_messages=0, migrations=5]`; 14/14 tenant-таблиц сохранили forced RLS, четыре ledger/audit policies и два mutation-blocking triggers восстановлены; runtime role без tenant context увидела `0` units. Временная БД и dump удалены, рабочий volume не изменялся.
+Исторический rehearsal v0.1 от 2026-08-16: source и restore совпали `[units=4, trace_events=7, audit_entries=0, outbox_messages=0, migrations=5]`; runtime role без tenant context увидела `0` units. Для v0.3 требуется новый rehearsal после применения всех восьми миграций.
 
 ## Incident and rollback
 

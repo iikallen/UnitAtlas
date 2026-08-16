@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using UnitAtlas.Api.Observability;
 using UnitAtlas.Application.Tenancy;
 using UnitAtlas.Application.Traceability;
 using UnitAtlas.Contracts;
@@ -226,8 +227,13 @@ public static class EpcisEndpoints
     private static string? Location(IReadOnlyDictionary<Guid, string> locations, Guid? id) =>
         id is not null && locations.TryGetValue(id.Value, out var value) ? value : null;
 
-    private static IResult Problem(string code, string detail, int status) => Results.Problem(
-        statusCode: status, title: code, detail: detail, extensions: new Dictionary<string, object?> { ["code"] = code });
+    private static IResult Problem(string code, string detail, int status)
+    {
+        if (status is 400 or 422) Telemetry.EpcisValidationFailures.Add(1,
+            new KeyValuePair<string, object?>("error.code", code));
+        return Results.Problem(statusCode: status, title: code, detail: detail,
+            extensions: new Dictionary<string, object?> { ["code"] = code });
+    }
 
     private sealed record AggregationChildren(string[] units, string[] logisticUnits);
 }

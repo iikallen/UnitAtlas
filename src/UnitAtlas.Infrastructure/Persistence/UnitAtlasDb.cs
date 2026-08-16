@@ -34,6 +34,7 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     protected override void OnModelCreating(ModelBuilder model)
     {
         model.Entity<Tenant>().ToTable("tenants");
+        model.Entity<Tenant>().Property(x => x.RegulatoryGatewayMode).HasDefaultValue("NONE");
 
         model.Entity<TenantMembership>().ToTable("tenant_memberships");
         model.Entity<TenantMembership>().Property(x => x.Role).HasConversion<string>();

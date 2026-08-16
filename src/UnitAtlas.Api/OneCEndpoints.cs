@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using UnitAtlas.Application.Tenancy;
 using UnitAtlas.Application.Traceability;
+using UnitAtlas.Api.Observability;
 using UnitAtlas.Domain;
 using UnitAtlas.Infrastructure.Persistence;
 
@@ -278,9 +279,13 @@ public static class OneCEndpoints
 
     private static bool Valid(string value, int max) => value.Length is > 0 && value.Length <= max;
 
-    private static IResult Existing(InboxMessage existing, string hash) => existing.PayloadHash == hash
-        ? Results.Json(JsonSerializer.Deserialize<JsonElement>(existing.ResultJson), statusCode: 200)
-        : Problem("INBOX_IDEMPOTENCY_CONFLICT", "ExternalMessageId was already used with a different payload.", 409);
+    private static IResult Existing(InboxMessage existing, string hash)
+    {
+        Telemetry.InboxDuplicates.Add(1, new KeyValuePair<string, object?>("integration.system", existing.SourceSystem));
+        return existing.PayloadHash == hash
+            ? Results.Json(JsonSerializer.Deserialize<JsonElement>(existing.ResultJson), statusCode: 200)
+            : Problem("INBOX_IDEMPOTENCY_CONFLICT", "ExternalMessageId was already used with a different payload.", 409);
+    }
 
     private static IResult Problem(string code, string detail, int status) => Results.Problem(
         statusCode: status, title: code, detail: detail, extensions: new Dictionary<string, object?> { ["code"] = code });

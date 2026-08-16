@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -104,6 +105,17 @@ public sealed class IntegrationDispatcher(
                 new WebhookSubject(message.SubjectType, message.SubjectId), payload.RootElement.Clone());
             result = await adapter.SendAsync(
                 new(endpoint.Adapter, endpoint.BaseAddress, endpoint.SecretRef, endpoint.SettingsJson), envelope, cancellationToken);
+        }
+
+        var tags = new TagList { { "integration.system", endpoint.System }, { "integration.adapter", endpoint.Adapter } };
+        IntegrationTelemetry.Attempts.Add(1, tags);
+        if (result.Delivered)
+            IntegrationTelemetry.DeliveryLag.Record(Math.Max(0, (DateTimeOffset.UtcNow - message.CreatedAt).TotalSeconds), tags);
+        else
+        {
+            tags.Add("error.code", result.ErrorCode);
+            IntegrationTelemetry.Failures.Add(1, tags);
+            if (!result.Retryable || delivery.AttemptCount >= maxAttempts) IntegrationTelemetry.DeadLetters.Add(1, tags);
         }
 
         await CompleteAsync(db, delivery, token, result, cancellationToken);

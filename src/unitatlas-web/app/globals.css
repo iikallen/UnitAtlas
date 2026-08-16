@@ -81,6 +81,12 @@ tr:hover td { background: #fbfaff; }
 .status.qc-passed { background: #e7f2ff; color: #3074bd; }
 .status.packed { background: #fff2dc; color: #a46608; }
 .empty { padding: 35px; text-align: center; color: var(--muted); font-size: 13px; }
+.secondary { cursor: pointer; border: 1px solid #d9d6e8; border-radius: 8px; padding: 7px 10px; color: var(--violet); background: white; font-size: 10px; font-weight: 700; }
+.secondary:disabled { cursor: wait; opacity: .55; }
+.integration-stats { padding: 0 22px; }
+.gateway-mode { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
+.gateway-mode select { border: 1px solid #d9d6e8; border-radius: 8px; padding: 8px; background: white; }
+.panel-note { margin: 0; padding: 16px 23px; color: var(--muted); font-size: 11px; }
 
 .products { margin-top: 17px; display: grid; grid-template-columns: 1fr repeat(3, 1fr); gap: 15px; align-items: stretch; }
 .products > div { padding: 19px 4px; }
