@@ -63,7 +63,13 @@ public static class DatabaseInitializer
         };
         db.AddRange(tenant, membership, product, seedLot, site, seedLocation,
             new ProductIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, ProductId = product.Id, Type = "GTIN", Value = product.Gtin },
-            new ProductIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, ProductId = product.Id, Type = "SKU", Value = product.Sku });
+            new ProductIdentifier { Id = Guid.NewGuid(), TenantId = tenant.Id, ProductId = product.Id, Type = "SKU", Value = product.Sku },
+            new LabelTemplate { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "INTERNAL_UNIT_QR", EntityType = "UNIT", IdentifierMode = "INTERNAL", Symbology = "QR", CreatedAt = now },
+            new LabelTemplate { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "GS1_DATAMATRIX_UNIT", EntityType = "UNIT", IdentifierMode = "GS1", Symbology = "GS1_DATA_MATRIX", CreatedAt = now },
+            new LabelTemplate { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "INTERNAL_LOGISTICS_QR", EntityType = "LOGISTIC_UNIT", IdentifierMode = "INTERNAL", Symbology = "QR", CreatedAt = now },
+            new LabelTemplate { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "GS1_LOGISTICS_LABEL", EntityType = "LOGISTIC_UNIT", IdentifierMode = "GS1", Symbology = "GS1_128", CreatedAt = now },
+            new PrintProfile { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "DEMO-INTERNAL", IdentifierMode = "INTERNAL", CreatedAt = now },
+            new Printer { Id = Guid.NewGuid(), TenantId = tenant.Id, Code = "DEMO-EDGE", Name = "Demo edge printer", Transport = "EDGE", Endpoint = "station://demo", IsEnabled = true, CreatedAt = now });
 
         var seeds = new[]
         {
