@@ -179,16 +179,17 @@ public sealed class ConcretePilotProfileTests
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         Assert.Equal("CHILD_ALREADY_AGGREGATED", (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
 
-        var shipment = await Send(system, $"shipment-{suffix}", new
+        var shipmentCommand = new
         {
-            type = "shipment.recorded",
-            data = new
-            {
-                externalId = $"shipment-5812-{suffix}", unitExternalId = $"5812-{suffix}:0001",
-                location = "Outbound dock", occurredAt = "2026-08-16T12:00:00Z"
-            }
-        });
+            commandId = Guid.NewGuid(), deviceId = device, commandType = "TRACE_EVENT",
+            unitAtlasId = units[0].AtlasId, eventType = "SHIPPED", location = "Outbound dock",
+            occurredAt = "2026-08-16T12:00:00Z"
+        };
+        var shipment = await client.PostAsJsonAsync("/api/v1/capture/sync", shipmentCommand);
         Assert.Equal(HttpStatusCode.Created, shipment.StatusCode);
+        var shipmentReplay = await client.PostAsJsonAsync("/api/v1/capture/sync", shipmentCommand);
+        Assert.Equal(HttpStatusCode.Created, shipmentReplay.StatusCode);
+        Assert.True((await shipmentReplay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
         Assert.Equal("Shipped", (await client.GetFromJsonAsync<JsonElement>($"/api/v1/units/{Uri.EscapeDataString(units[0].AtlasId)}"))
             .GetProperty("state").GetProperty("status").GetString());
 
