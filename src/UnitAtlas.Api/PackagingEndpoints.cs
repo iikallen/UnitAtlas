@@ -69,7 +69,11 @@ public static class PackagingEndpoints
             {
                 Id = Guid.CreateVersion7(),
                 TenantId = tenantContext.TenantId,
+                CorrelationId = logisticUnit.Id,
+                Source = "unitatlas",
                 Type = "logistic_unit.created",
+                SubjectType = "LogisticUnit",
+                SubjectId = logisticUnit.Id.ToString(),
                 PayloadJson = JsonSerializer.Serialize(new { logisticUnit.Id, logisticUnit.Code, logisticUnit.Type, logisticUnit.Sscc }),
                 CreatedAt = now
             });
@@ -267,7 +271,11 @@ public static class PackagingEndpoints
                 {
                     Id = Guid.CreateVersion7(),
                     TenantId = tenantContext.TenantId,
+                    CorrelationId = aggregation.Id,
+                    Source = "unitatlas",
                     Type = "aggregation.recorded",
+                    SubjectType = "AggregationEvent",
+                    SubjectId = aggregation.Id.ToString(),
                     PayloadJson = JsonSerializer.Serialize(new { aggregation.Id, parent.Code, aggregation.Action, unitCodes, logisticCodes }),
                     CreatedAt = now
                 });

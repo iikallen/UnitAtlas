@@ -23,12 +23,14 @@ jobs:
         run: |
           docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT usesuper FROM pg_user WHERE usename='unitatlas'" | grep -qx t
           docker compose exec -T -e PGPASSWORD=unitatlas_dev db psql -h 127.0.0.1 -U unitatlas -d unitatlas -tAc "SELECT count(*) FROM products" | grep -qx 0
-          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=17 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships','audit_entries','external_references','idempotency_records','locations','lots','outbox_messages','product_identifiers','sites','unit_identifiers','logistic_units','logistic_unit_contents','aggregation_events')" | grep -qx t
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=20 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relname IN ('products','units','trace_events','unit_states','tenant_memberships','audit_entries','external_references','idempotency_records','locations','lots','outbox_messages','product_identifiers','sites','unit_identifiers','logistic_units','logistic_unit_contents','aggregation_events','integration_endpoints','integration_deliveries','inbox_messages')" | grep -qx t
           docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT NOT relrowsecurity AND NOT relforcerowsecurity FROM pg_class WHERE relname='public_passport_configs'" | grep -qx t
-          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=6 AND bool_and(cmd IN ('SELECT','INSERT')) FROM pg_policies WHERE tablename IN ('trace_events','audit_entries','aggregation_events')" | grep -qx t
+          docker compose exec -T db psql -U unitatlas_admin -d unitatlas -tAc "SELECT count(*)=10 AND bool_and(cmd IN ('SELECT','INSERT')) FROM pg_policies WHERE tablename IN ('trace_events','audit_entries','aggregation_events','outbox_messages','inbox_messages')" | grep -qx t
           if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'UPDATE trace_events SET "Actor" = "Actor" WHERE false'; then exit 1; fi
           if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'DELETE FROM audit_entries WHERE false'; then exit 1; fi
           if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'UPDATE aggregation_events SET "Action" = "Action" WHERE false'; then exit 1; fi
+          if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'UPDATE outbox_messages SET "Type" = "Type" WHERE false'; then exit 1; fi
+          if docker compose exec -T db psql -v ON_ERROR_STOP=1 -U unitatlas_admin -d unitatlas -c 'DELETE FROM inbox_messages WHERE false'; then exit 1; fi
       - name: Build and run .NET tests
         run: >-
           docker run --rm
