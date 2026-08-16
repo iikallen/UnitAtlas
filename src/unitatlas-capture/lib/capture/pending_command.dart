@@ -12,6 +12,8 @@ class PendingCommand {
     this.syncStatus = 'PENDING',
     this.attemptCount = 0,
     this.lastError,
+    this.lastLatencyMs,
+    this.duplicate = false,
   });
 
   factory PendingCommand.aggregation({
@@ -78,6 +80,8 @@ class PendingCommand {
         syncStatus: row['sync_status']! as String,
         attemptCount: row['attempt_count']! as int,
         lastError: row['last_error'] as String?,
+        lastLatencyMs: row['last_latency_ms'] as int?,
+        duplicate: (row['duplicate'] as int? ?? 0) == 1,
       );
 
   final String id;
@@ -88,6 +92,8 @@ class PendingCommand {
   final String syncStatus;
   final int attemptCount;
   final String? lastError;
+  final int? lastLatencyMs;
+  final bool duplicate;
 
   Map<String, Object?> toDatabase() => {
     'id': id,
@@ -98,6 +104,8 @@ class PendingCommand {
     'sync_status': syncStatus,
     'attempt_count': attemptCount,
     'last_error': lastError,
+    'last_latency_ms': lastLatencyMs,
+    'duplicate': duplicate ? 1 : 0,
   };
 
   Map<String, dynamic> toRequest() => {
