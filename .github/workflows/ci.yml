@@ -40,6 +40,12 @@ jobs:
           -w /work
           mcr.microsoft.com/dotnet/sdk:10.0
           sh -lc "dotnet build UnitAtlas.slnx --configuration Release && dotnet test UnitAtlas.slnx --configuration Release --no-build"
+      - name: Validate generated EPCIS document with official GS1 schema
+        run: |
+          curl --fail --silent https://ref.gs1.org/standards/epcis/2.0.1/epcis-json-schema.json --output "${RUNNER_TEMP}/epcis-json-schema.json"
+          curl --fail --silent http://localhost:8080/api/v1/epcis/documents --output "${RUNNER_TEMP}/unitatlas-epcis-document.json"
+          docker run --rm -v "${RUNNER_TEMP}:/validation:ro" node:24-alpine \
+            sh -lc "npx --yes -p ajv-cli@5.0.0 -p ajv-formats@3.0.1 ajv validate --spec=draft7 -c ajv-formats -s /validation/epcis-json-schema.json -d /validation/unitatlas-epcis-document.json"
       - name: Smoke test web
         run: |
           curl --fail --silent http://localhost:3000 >/dev/null

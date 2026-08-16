@@ -377,6 +377,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
 
 app.MapPackagingEndpoints();
 app.MapIntegrationEndpoints();
+app.MapEpcisEndpoints();
 app.Run();
 
 static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, string? cursor = null, bool orderByAtlasId = false)

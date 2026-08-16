@@ -128,7 +128,7 @@ public static class PackagingEndpoints
             unitChildren.Concat(logisticChildren).ToArray(), events));
     }
 
-    private static async Task<IResult> RecordAggregation(
+    internal static async Task<IResult> RecordAggregation(
         string code,
         AggregationRequest request,
         UnitAtlasDb db,
