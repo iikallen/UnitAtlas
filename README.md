@@ -56,7 +56,7 @@ Read contracts: `/api/v1/sites`, `/api/v1/locations`, `/api/v1/units/{atlasId}/e
 
 EPCIS supported subset: `GET/POST /api/v1/epcis/documents`. Export возвращает tenant ledger как EPCISDocument; capture принимает один ObjectEvent или AggregationEvent. Это не полный EPCIS Repository: Query/Subscriptions и XML/WSDL отложены.
 
-1C reference import: `POST /api/v1/integration-inbox/{system}/1c` с `X-External-Message-Id`. Поддержаны `product.upsert`, `production.completed`, `shipment.recorded` и `receipt.recorded`; transport/profile конкретной базы 1С выбирается для пилота.
+1C import: `POST /api/v1/integration-inbox/{system}/1c` с `X-External-Message-Id`. Reference-контракт поддерживает `product.upsert`, `production.completed`, `shipment.recorded` и `receipt.recorded`. Concrete pilot profile `ONEC_UPP_KZ_1_3_HTTP_JSON_V1` добавляет `production_order.completed`: один idempotent запрос связывает внешний заказ с Lot/batch, создаёт 1–1000 Units и один GS1 Data Matrix print job. Контракт расширения описан в [pilot profile](docs/integrations/onec-upp-kz-1.3-pilot-profile.md); это UnitAtlas extension для 1С:УПП Казахстан 1.3, а не заявление об официальной сертификации 1С.
 
 Integration operations: `/integrations` показывает enabled state, last success, backlog, retry/dead-letter counts и позволяет безопасно повторить dead letter. Tenant mode `NONE | ONE_C | DIRECT_IS_MPT` исключает одновременный regulatory route; direct IS MPT adapter не входит в v0.3.0.
 

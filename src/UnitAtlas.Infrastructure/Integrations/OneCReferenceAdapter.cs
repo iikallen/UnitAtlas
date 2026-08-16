@@ -15,6 +15,10 @@ public sealed class OneCReferenceAdapter(HttpClient client, IConfiguration confi
         var eventType = message.Type switch
         {
             "unit.created" => "unit.created",
+            "production_order.completed" => "production_order.completed",
+            "print_job.created" => "print_job.created",
+            "shipment.recorded" => "shipment.recorded",
+            "receipt.recorded" => "receipt.recorded",
             "trace_event.recorded" => "trace.recorded",
             "aggregation.recorded" when Action(message.Data) == "ADD" => "aggregation.added",
             "aggregation.recorded" when Action(message.Data) == "DELETE" => "aggregation.deleted",
