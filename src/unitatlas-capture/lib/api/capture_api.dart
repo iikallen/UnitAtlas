@@ -5,19 +5,52 @@ import 'package:http/http.dart' as http;
 import '../capture/pending_command.dart';
 
 class CaptureApi {
-  CaptureApi(this.baseUri, {http.Client? client})
-    : _client = client ?? http.Client();
+  CaptureApi(
+    this.baseUri, {
+    http.Client? client,
+    this.accessToken,
+    this.sessionToken,
+  }) : _client = client ?? http.Client();
 
   final Uri baseUri;
   final http.Client _client;
+  final String? accessToken;
+  String? sessionToken;
 
-  Future<Map<String, dynamic>> bootstrap() async =>
-      _json(await _client.get(baseUri.resolve('/api/v1/capture/bootstrap')));
+  bool get hasSession => sessionToken?.isNotEmpty == true;
+
+  Future<Map<String, dynamic>> enroll(
+    String deviceCode,
+    String enrollmentCode,
+  ) async => _json(
+    await _client.post(
+      baseUri.resolve('/api/v1/capture/enroll'),
+      headers: _headers(json: true, includeSession: false),
+      body: jsonEncode({
+        'deviceCode': deviceCode,
+        'enrollmentCode': enrollmentCode,
+      }),
+    ),
+  );
+
+  Future<Map<String, dynamic>> bootstrap() async => _json(
+    await _client.get(
+      baseUri.resolve('/api/v1/capture/bootstrap'),
+      headers: _headers(),
+    ),
+  );
+
+  Future<Map<String, dynamic>> changes(String after) async => _json(
+    await _client.get(
+      baseUri.resolve('/api/v1/capture/changes?after=$after'),
+      headers: _headers(),
+    ),
+  );
 
   Future<Map<String, dynamic>> sync(PendingCommand command) async {
     final response = await _client.post(
       baseUri.resolve('/api/v1/capture/sync'),
-      headers: {'content-type': 'application/json'},
+      headers: _headers(json: true),
       body: jsonEncode(command.toRequest()),
     );
     return _json(response);
@@ -26,10 +59,20 @@ class CaptureApi {
   Future<Map<String, dynamic>> resolve(String code) async => _json(
     await _client.post(
       baseUri.resolve('/api/v1/capture/resolve'),
-      headers: {'content-type': 'application/json'},
+      headers: _headers(json: true),
       body: jsonEncode({'code': code}),
     ),
   );
+
+  Map<String, String> _headers({
+    bool json = false,
+    bool includeSession = true,
+  }) => {
+    if (json) 'content-type': 'application/json',
+    if (accessToken?.isNotEmpty == true) 'authorization': 'Bearer $accessToken',
+    if (includeSession && sessionToken?.isNotEmpty == true)
+      'X-UnitAtlas-Device-Session': sessionToken!,
+  };
 
   Map<String, dynamic> _json(http.Response response) {
     final body = jsonDecode(response.body) as Map<String, dynamic>;

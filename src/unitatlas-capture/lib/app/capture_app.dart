@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../workflows/task_home.dart';
+import '../auth/enrollment_page.dart';
 import '../sync/capture_repository.dart';
+import '../workflows/task_home.dart';
 
-class CaptureApp extends StatelessWidget {
+class CaptureApp extends StatefulWidget {
   const CaptureApp({super.key, required this.repository});
   final CaptureRepository repository;
 
+  @override
+  State<CaptureApp> createState() => _CaptureAppState();
+}
+
+class _CaptureAppState extends State<CaptureApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'UnitAtlas Capture',
@@ -14,6 +20,11 @@ class CaptureApp extends StatelessWidget {
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff3346a8)),
       useMaterial3: true,
     ),
-    home: TaskHome(repository: repository),
+    home: widget.repository.isEnrolled
+        ? TaskHome(repository: widget.repository)
+        : EnrollmentPage(
+            repository: widget.repository,
+            onEnrolled: () => setState(() {}),
+          ),
   );
 }

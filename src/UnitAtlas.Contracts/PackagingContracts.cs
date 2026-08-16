@@ -35,5 +35,7 @@ public sealed record AggregationEventResponse(
     string SourceSystem,
     Guid? ReadPointId,
     Guid? BusinessLocationId,
+    Guid? DeviceId,
+    Guid? StationId,
     IReadOnlyCollection<string> UnitAtlasIds,
     IReadOnlyCollection<string> LogisticUnitCodes);

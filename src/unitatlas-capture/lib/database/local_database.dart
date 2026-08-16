@@ -61,6 +61,36 @@ class LocalDatabase {
       await tx.insert('sync_checkpoint', {
         'id': 1,
         'token': bootstrap['syncToken'] as String? ?? '0',
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    });
+  }
+
+  Future<String> checkpoint() async {
+    final rows = await (await _db).query('sync_checkpoint', limit: 1);
+    return rows.isEmpty ? '0' : rows.first['token']! as String;
+  }
+
+  Future<void> applyChanges(Map<String, dynamic> response) async {
+    final db = await _db;
+    await db.transaction((tx) async {
+      for (final row in response['changes'] as List<dynamic>? ?? []) {
+        final change = row as Map<String, dynamic>;
+        final type = change['resourceType'] as String?;
+        final table = type == 'UNIT'
+            ? 'local_units'
+            : type == 'LOGISTIC_UNIT'
+            ? 'local_logistic_units'
+            : null;
+        if (table != null) {
+          await tx.insert(table, {
+            'id': change['resourceId'],
+            'json': jsonEncode(change),
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+      await tx.insert('sync_checkpoint', {
+        'id': 1,
+        'token': response['nextToken'] as String? ?? '0',
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
