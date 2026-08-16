@@ -66,6 +66,7 @@ public sealed class IntegrationDispatcher(
             FROM outbox_messages o
             JOIN integration_endpoints e ON e."TenantId" = o."TenantId"
             WHERE e."Enabled" AND o."CreatedAt" >= e."CreatedAt"
+              AND (NOT (e."SettingsJson" ? 'eventTypes') OR e."SettingsJson"->'eventTypes' ? o."Type")
             ON CONFLICT ("TenantId", "OutboxMessageId", "IntegrationEndpointId") DO NOTHING
             """, cancellationToken);
 

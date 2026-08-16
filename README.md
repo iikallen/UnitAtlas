@@ -11,6 +11,7 @@
 - Site/Location/Lot, extensible identifiers, audit, outbox и public passport config;
 - integration port + versioned webhook envelope без 1С/ИС МПТ внутри core;
 - EPCIS 2.0.1 JSON/JSON-LD capture/export для ObjectEvent и AggregationEvent;
+- reference 1C adapter поверх durable Inbox/Outbox без зависимости core от редакции 1С;
 - request-hash idempotency с 409 при повторном key и другом body;
 - versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
 - Problem Details, cursor pagination, rate limits, security headers и JSON logs;
@@ -51,6 +52,8 @@ Internal API: `/api/v1/*`. Anonymous API: только `/api/public/passports/{p
 Read contracts: `/api/v1/sites`, `/api/v1/locations`, `/api/v1/units/{atlasId}/events` и `/api/v1/passports/{atlasId}`. Новые TraceEvent получают UUIDv7; correction выполняется новым событием, UPDATE/DELETE/TRUNCATE ledger и audit запрещены DB triggers.
 
 EPCIS supported subset: `GET/POST /api/v1/epcis/documents`. Export возвращает tenant ledger как EPCISDocument; capture принимает один ObjectEvent или AggregationEvent. Это не полный EPCIS Repository: Query/Subscriptions и XML/WSDL отложены.
+
+1C reference import: `POST /api/v1/integration-inbox/{system}/1c` с `X-External-Message-Id`. Поддержаны `product.upsert`, `production.completed`, `shipment.recorded` и `receipt.recorded`; transport/profile конкретной базы 1С выбирается для пилота.
 
 ## Проверка
 

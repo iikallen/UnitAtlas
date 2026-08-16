@@ -20,6 +20,9 @@ public static class DependencyInjection
         services.AddHttpClient<WebhookIntegrationAdapter>(client =>
             client.Timeout = TimeSpan.FromSeconds(configuration.GetValue("Integrations:HttpTimeoutSeconds", 10)));
         services.AddTransient<IIntegrationAdapter>(provider => provider.GetRequiredService<WebhookIntegrationAdapter>());
+        services.AddHttpClient<OneCReferenceAdapter>(client =>
+            client.Timeout = TimeSpan.FromSeconds(configuration.GetValue("Integrations:HttpTimeoutSeconds", 10)));
+        services.AddTransient<IIntegrationAdapter>(provider => provider.GetRequiredService<OneCReferenceAdapter>());
         services.AddHostedService<IntegrationDispatcher>();
         return services;
     }

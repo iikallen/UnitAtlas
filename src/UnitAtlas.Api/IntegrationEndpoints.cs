@@ -48,8 +48,8 @@ public static class IntegrationEndpoints
     {
         var system = request.System.Trim().ToUpperInvariant();
         var adapter = request.Adapter.Trim().ToUpperInvariant();
-        if (system.Length is < 1 or > 80 || adapter != "WEBHOOK")
-            return Problem("INVALID_INTEGRATION_ENDPOINT", "System is required and adapter must be WEBHOOK.", 400);
+        if (system.Length is < 1 or > 80 || adapter is not ("WEBHOOK" or "ONE_C"))
+            return Problem("INVALID_INTEGRATION_ENDPOINT", "System is required and adapter must be WEBHOOK or ONE_C.", 400);
         if (!Uri.TryCreate(request.BaseAddress, UriKind.Absolute, out var address)
             || (address.Scheme != Uri.UriSchemeHttps && !(environment.IsDevelopment() && address.Scheme == Uri.UriSchemeHttp)))
             return Problem("INVALID_INTEGRATION_ENDPOINT", "BaseAddress must be an absolute HTTPS URL (HTTP is allowed only in development).", 400);
