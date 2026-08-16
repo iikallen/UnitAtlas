@@ -223,7 +223,7 @@ api.MapGet("/units", async (string? query, string? cursor, int? limit, HttpRespo
     .RequireAuthorization(Permissions.UnitsRead)
     .RequireRateLimiting("unit-search");
 
-api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
+api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db, ITenantContext tenantContext) =>
 {
     var product = await db.Products.FindAsync(request.ProductId);
     if (product is null) return Problem("PRODUCT_NOT_FOUND", "Product not found.", StatusCodes.Status404NotFound);
@@ -260,7 +260,16 @@ api.MapPost("/units", async (UnitRequest request, UnitAtlasDb db) =>
     db.AddRange(unit, trace, NewState(unit, trace, "Manufactured"),
         new UnitIdentifier { Id = Guid.NewGuid(), TenantId = unit.TenantId, UnitId = unit.Id, Type = "ATLAS_ID", Value = unit.AtlasId },
         new UnitIdentifier { Id = Guid.NewGuid(), TenantId = unit.TenantId, UnitId = unit.Id, Type = "SERIAL", Value = unit.Serial },
-        new PublicPassportConfig { UnitId = unit.Id, TenantId = unit.TenantId, PublicId = Guid.NewGuid().ToString("N"), IsPublished = false });
+        new PublicPassportConfig { UnitId = unit.Id, TenantId = unit.TenantId, PublicId = Guid.NewGuid().ToString("N"), IsPublished = false },
+        new AuditEntry { Id = Guid.CreateVersion7(), TenantId = unit.TenantId, ActorSubject = tenantContext.UserSubject,
+            Action = "unit.created", EntityType = "TrackedUnit", EntityId = unit.Id,
+            DataJson = JsonSerializer.Serialize(new { unit.AtlasId, unit.ProductId, unit.Serial, unit.Lot }), CreatedAt = now },
+        new OutboxMessage { Id = Guid.CreateVersion7(), TenantId = unit.TenantId, CorrelationId = unit.Id,
+            Source = "unitatlas", Type = "unit.created", SubjectType = "TrackedUnit", SubjectId = unit.Id.ToString(),
+            PayloadJson = JsonSerializer.Serialize(new { unit.Id, unit.AtlasId, unit.ProductId, unit.Serial, unit.Lot, unit.ManufacturedAt }), CreatedAt = now },
+        new OutboxMessage { Id = Guid.CreateVersion7(), TenantId = unit.TenantId, CorrelationId = unit.Id,
+            Source = "unitatlas", Type = "trace_event.recorded", SubjectType = "TraceEvent", SubjectId = trace.Id.ToString(),
+            PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId, trace.EventType, trace.Location, trace.OccurredAt, trace.SourceSystem }), CreatedAt = now });
     await db.SaveChangesAsync();
     return Results.Created($"/api/v1/units/{unit.AtlasId}", new { unit.AtlasId });
 }).RequireAuthorization(Permissions.UnitsCreate);
@@ -377,6 +386,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
 
 app.MapPackagingEndpoints();
 app.MapIntegrationEndpoints();
+app.MapOneCEndpoints();
 app.MapEpcisEndpoints();
 app.Run();
 
