@@ -24,7 +24,7 @@ public static class DatabaseInitializer
         if (await db.Tenants.AnyAsync(cancellationToken)) return;
 
         var now = DateTimeOffset.UtcNow;
-        var tenant = new Tenant { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), Name = "Atlas Manufacturing", CreatedAt = now };
+        var tenant = new Tenant { Id = Guid.Parse("11111111-1111-1111-1111-111111111111"), Name = "Atlas Manufacturing", RegulatoryGatewayMode = "NONE", CreatedAt = now };
         tenantContext.Initialize(tenant.Id, "demo.operator", TenantRole.Owner);
         var membership = new TenantMembership
         {
@@ -103,7 +103,7 @@ public static class DatabaseInitializer
         }
         await db.SaveChangesAsync(cancellationToken);
 
-        var secondTenant = new Tenant { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), Name = "Second Tenant", CreatedAt = now };
+        var secondTenant = new Tenant { Id = Guid.Parse("22222222-2222-2222-2222-222222222222"), Name = "Second Tenant", RegulatoryGatewayMode = "NONE", CreatedAt = now };
         var secondMembership = new TenantMembership
         {
             Id = Guid.NewGuid(),

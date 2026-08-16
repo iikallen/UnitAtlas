@@ -103,7 +103,7 @@ app.Use(async (context, next) =>
 app.UseAuthorization();
 app.UseRateLimiter();
 
-app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.2.0-dev" })).AllowAnonymous();
+app.MapGet("/", () => Results.Ok(new { name = "UnitAtlas API", version = "0.3.0" })).AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/health/ready", async (UnitAtlasDb db) =>
     await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.Problem("Database unavailable"));

@@ -37,6 +37,31 @@ public sealed class WebhookIntegrationAdapterTests
     }
 
     [Fact]
+    public async Task Server_error_is_retried()
+    {
+        var adapter = Adapter(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var result = await adapter.SendAsync(Target(), Envelope(), CancellationToken.None);
+
+        Assert.False(result.Delivered);
+        Assert.True(result.Retryable);
+        Assert.Equal("HTTP_500", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Timeout_is_retried()
+    {
+        var adapter = new WebhookIntegrationAdapter(
+            new HttpClient(new ThrowingHandler()), new ConfigurationBuilder().Build());
+
+        var result = await adapter.SendAsync(Target(), Envelope(), CancellationToken.None);
+
+        Assert.False(result.Delivered);
+        Assert.True(result.Retryable);
+        Assert.Equal("TIMEOUT", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task Missing_referenced_secret_fails_without_sending()
     {
         var sent = false;
@@ -62,5 +87,11 @@ public sealed class WebhookIntegrationAdapterTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(response(request));
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new TaskCanceledException();
     }
 }
