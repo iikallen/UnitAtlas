@@ -14,7 +14,7 @@ jobs:
           docker run --rm
           -v "${{ github.workspace }}/src/unitatlas-web:/app"
           -w /app node:24-alpine
-          sh -lc "npm ci && npm run typecheck && npm run lint"
+          sh -lc "npm ci && npm test && npm run typecheck && npm run lint"
       - name: Capture analyze, test and Android build
         run: >-
           docker run --rm
