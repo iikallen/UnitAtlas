@@ -5,3 +5,4 @@
 **/node_modules
 **/.next
 tests
+src/unitatlas-capture

@@ -44,6 +44,7 @@ builder.Services.AddRateLimiter(options =>
     options.AddFixedWindowLimiter("unit-search", limiter => ConfigureLimiter(limiter, 60));
     options.AddFixedWindowLimiter("unit-lookup", limiter => ConfigureLimiter(limiter, 120));
     options.AddFixedWindowLimiter("event-ingest", limiter => ConfigureLimiter(limiter, 60));
+    options.AddFixedWindowLimiter("capture-sync", limiter => ConfigureLimiter(limiter, 1200));
 });
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(builder.Configuration["Cors:Origin"] ?? "http://localhost:3000")
@@ -389,6 +390,7 @@ app.MapIntegrationEndpoints();
 app.MapOneCEndpoints();
 app.MapEpcisEndpoints();
 app.MapPrintingEndpoints();
+app.MapCaptureEndpoints();
 app.Run();
 
 static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, string? cursor = null, bool orderByAtlasId = false)
