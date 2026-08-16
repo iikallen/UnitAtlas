@@ -14,6 +14,7 @@
 - reference 1C adapter поверх durable Inbox/Outbox без зависимости core от редакции 1С;
 - integration operations workspace `/integrations`, delivery metrics, dead-letter retry и single regulatory gateway mode;
 - idempotent label/print jobs для Unit и logistics labels с явными `INTERNAL | GS1` профилями и append-only попытками;
+- Android Flutter Capture с SQLite command queue, ordered replay и явными sync conflicts без silent overwrite;
 - request-hash idempotency с 409 при повторном key и другом body;
 - versioned internal API, allow-listed public passport и Next.js confidential OIDC/BFF;
 - Problem Details, cursor pagination, rate limits, security headers и JSON logs;
@@ -60,6 +61,8 @@ EPCIS supported subset: `GET/POST /api/v1/epcis/documents`. Export возвра�
 Integration operations: `/integrations` показывает enabled state, last success, backlog, retry/dead-letter counts и позволяет безопасно повторить dead letter. Tenant mode `NONE | ONE_C | DIRECT_IS_MPT` исключает одновременный regulatory route; direct IS MPT adapter не входит в v0.3.0.
 
 Printing: `GET /api/v1/print-setup`, `POST/GET /api/v1/print-jobs` и `POST /api/v1/print-jobs/{id}/attempts`. `INTERNAL` payload не выдаётся за GS1; профиль `GS1` требует licensed Company Prefix, а GTIN/SSCC должны совпадать с ним и проходить check digit.
+
+Capture baseline: `GET /api/v1/capture/bootstrap`, `POST /resolve` и `POST /sync`. Клиент в `src/unitatlas-capture` сначала сохраняет UUIDv7-команду в SQLite и только затем отправляет её; повтор использует тот же server idempotency key, а 409 остаётся видимым конфликтом.
 
 ## Проверка
 
