@@ -349,7 +349,11 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
             {
                 Id = Guid.NewGuid(),
                 TenantId = unit.TenantId,
+                CorrelationId = trace.Id,
+                Source = "unitatlas",
                 Type = "trace_event.recorded",
+                SubjectType = "TraceEvent",
+                SubjectId = trace.Id.ToString(),
                 PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId }),
                 CreatedAt = now
             });
@@ -372,6 +376,7 @@ api.MapPost("/units/{atlasId}/events", async (string atlasId, EventRequest reque
 }).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("event-ingest");
 
 app.MapPackagingEndpoints();
+app.MapIntegrationEndpoints();
 app.Run();
 
 static IQueryable<UnitSummary> UnitQuery(UnitAtlasDb db, string? query = null, string? cursor = null, bool orderByAtlasId = false)

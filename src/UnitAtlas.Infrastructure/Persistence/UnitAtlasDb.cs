@@ -24,6 +24,9 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
     public DbSet<PublicPassportConfig> PublicPassportConfigs => Set<PublicPassportConfig>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<ExternalReference> ExternalReferences => Set<ExternalReference>();
+    public DbSet<IntegrationEndpoint> IntegrationEndpoints => Set<IntegrationEndpoint>();
+    public DbSet<IntegrationDelivery> IntegrationDeliveries => Set<IntegrationDelivery>();
+    public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
     public DbSet<LogisticUnit> LogisticUnits => Set<LogisticUnit>();
     public DbSet<AggregationEvent> AggregationEvents => Set<AggregationEvent>();
     public DbSet<LogisticUnitContent> LogisticUnitContents => Set<LogisticUnitContent>();
@@ -134,10 +137,36 @@ public sealed class UnitAtlasDb(DbContextOptions<UnitAtlasDb> options, ITenantCo
 
         TenantEntity<OutboxMessage>(model, "outbox_messages");
         model.Entity<OutboxMessage>().Property(x => x.PayloadJson).HasColumnType("jsonb");
-        model.Entity<OutboxMessage>().HasIndex(x => new { x.TenantId, x.ProcessedAt, x.CreatedAt });
+        model.Entity<OutboxMessage>().HasIndex(x => new { x.TenantId, x.CreatedAt });
 
         TenantEntity<ExternalReference>(model, "external_references");
         model.Entity<ExternalReference>().HasIndex(x => new { x.TenantId, x.System, x.EntityType, x.Value }).IsUnique();
+
+        TenantEntity<IntegrationEndpoint>(model, "integration_endpoints");
+        model.Entity<IntegrationEndpoint>().Property(x => x.SettingsJson).HasColumnType("jsonb");
+        model.Entity<IntegrationEndpoint>().HasIndex(x => new { x.TenantId, x.System }).IsUnique();
+
+        TenantEntity<IntegrationDelivery>(model, "integration_deliveries");
+        model.Entity<IntegrationDelivery>().Property(x => x.Status).HasConversion<string>();
+        model.Entity<IntegrationDelivery>().HasIndex(x => new { x.TenantId, x.OutboxMessageId, x.IntegrationEndpointId }).IsUnique();
+        model.Entity<IntegrationDelivery>().HasIndex(x => new { x.TenantId, x.Status, x.NextAttemptAt });
+        model.Entity<IntegrationDelivery>().HasOne<OutboxMessage>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.OutboxMessageId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        model.Entity<IntegrationDelivery>().HasOne<IntegrationEndpoint>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.IntegrationEndpointId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        TenantEntity<InboxMessage>(model, "inbox_messages");
+        model.Entity<InboxMessage>().Property(x => x.PayloadJson).HasColumnType("jsonb");
+        model.Entity<InboxMessage>().Property(x => x.ResultJson).HasColumnType("jsonb");
+        model.Entity<InboxMessage>().HasIndex(x => new { x.TenantId, x.SourceSystem, x.ExternalMessageId }).IsUnique();
+        model.Entity<InboxMessage>().HasOne<IntegrationEndpoint>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.IntegrationEndpointId })
+            .HasPrincipalKey(x => new { x.TenantId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
 
         TenantEntity<LogisticUnit>(model, "logistic_units");
         model.Entity<LogisticUnit>().HasIndex(x => new { x.TenantId, x.Code }).IsUnique();

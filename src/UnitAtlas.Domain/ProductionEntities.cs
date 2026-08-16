@@ -84,10 +84,13 @@ public sealed class OutboxMessage
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
+    public Guid CorrelationId { get; set; }
+    public required string Source { get; set; }
     public required string Type { get; set; }
+    public required string SubjectType { get; set; }
+    public required string SubjectId { get; set; }
     public required string PayloadJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
-    public DateTimeOffset? ProcessedAt { get; set; }
 }
 
 public sealed class ExternalReference
