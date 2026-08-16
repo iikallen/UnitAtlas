@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveSession, takeFlow } from "../../../lib/auth";
+import { newSession, type TokenResponse } from "../../../lib/oidc";
 
 type Flow = { state: string; verifier: string; redirectUri: string; returnTo: string };
 
@@ -20,8 +21,12 @@ export async function GET(request: NextRequest) {
     })
   });
   if (!response.ok) return NextResponse.json({ code: "OIDC_TOKEN_EXCHANGE_FAILED" }, { status: 502 });
-  const token = await response.json() as { access_token: string; expires_in?: number };
-  await saveSession(token.access_token, token.expires_in ?? 300);
+  const token = await response.json() as TokenResponse;
+  const configuredLifetime = Number(process.env.AUTH_SESSION_MAX_AGE_SECONDS ?? 28_800);
+  const session = newSession(token, Math.floor(Date.now() / 1000),
+    Number.isFinite(configuredLifetime) && configuredLifetime > 0 ? Math.min(configuredLifetime, 2_592_000) : 28_800);
+  if (!session) return NextResponse.json({ code: "OIDC_REFRESH_TOKEN_MISSING" }, { status: 502 });
+  await saveSession(session);
   const returnTo = flow.returnTo.startsWith("/") && !flow.returnTo.startsWith("//") ? flow.returnTo : "/";
   return NextResponse.redirect(new URL(returnTo, process.env.APP_BASE_URL ?? request.url));
 }

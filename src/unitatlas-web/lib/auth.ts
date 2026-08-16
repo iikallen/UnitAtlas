@@ -1,8 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { refreshOidcSession, type OidcSession } from "./oidc";
 
-const sessionCookie = "unitatlas_session";
+export const sessionCookie = "unitatlas_session";
 const flowCookie = "unitatlas_oidc_flow";
+const refreshes = new Map<string, Promise<OidcSession | null>>();
 
 function key() {
   const secret = process.env.AUTH_SESSION_SECRET;
@@ -30,16 +32,60 @@ export function unseal<T>(value?: string): T | null {
   }
 }
 
-export async function accessToken() {
-  if (process.env.AUTH_DEMO_MODE === "true") return null;
-  const session = unseal<{ accessToken: string; expiresAt: number }>((await cookies()).get(sessionCookie)?.value);
-  return session && session.expiresAt > Date.now() / 1000 + 30 ? session.accessToken : null;
+export function readSession(value?: string) {
+  const session = unseal<Partial<OidcSession>>(value);
+  return session && typeof session.accessToken === "string" && typeof session.refreshToken === "string"
+    && typeof session.accessExpiresAt === "number" && typeof session.sessionExpiresAt === "number"
+    ? session as OidcSession
+    : null;
 }
 
-export async function saveSession(token: string, expiresIn: number) {
-  (await cookies()).set(sessionCookie, seal({ accessToken: token, expiresAt: Math.floor(Date.now() / 1000) + expiresIn }), {
-    httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: expiresIn
+export function needsRenewal(session: OidcSession | null, now = Math.floor(Date.now() / 1000)) {
+  return Boolean(session && session.sessionExpiresAt > now && session.accessExpiresAt <= now + 30);
+}
+
+export async function accessToken(renew = false) {
+  if (process.env.AUTH_DEMO_MODE === "true") return null;
+  const session = readSession((await cookies()).get(sessionCookie)?.value);
+  const now = Math.floor(Date.now() / 1000);
+  if (session && session.accessExpiresAt > now + 30 && session.sessionExpiresAt > now) return session.accessToken;
+  if (!renew || !session) return null;
+  const refreshed = await refresh(session);
+  if (!refreshed) {
+    await clearSession();
+    return null;
+  }
+  await saveSession(refreshed);
+  return refreshed.accessToken;
+}
+
+export async function saveSession(session: OidcSession) {
+  const maxAge = Math.max(1, session.sessionExpiresAt - Math.floor(Date.now() / 1000));
+  (await cookies()).set(sessionCookie, seal(session), {
+    httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge
   });
+}
+
+export async function renewSession() {
+  const session = readSession((await cookies()).get(sessionCookie)?.value);
+  if (!session) return false;
+  const refreshed = await refresh(session);
+  if (!refreshed) return false;
+  await saveSession(refreshed);
+  return true;
+}
+
+async function refresh(session: OidcSession) {
+  const id = createHash("sha256").update(session.refreshToken).digest("hex");
+  const active = refreshes.get(id);
+  if (active) return active;
+  const operation = refreshOidcSession(session, {
+    authority: process.env.OIDC_AUTHORITY ?? "",
+    clientId: process.env.OIDC_CLIENT_ID ?? "",
+    clientSecret: process.env.OIDC_CLIENT_SECRET ?? ""
+  }).finally(() => refreshes.delete(id));
+  refreshes.set(id, operation);
+  return operation;
 }
 
 export async function saveFlow(flow: object) {

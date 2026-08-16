@@ -15,7 +15,7 @@
 
 ## Риски
 
-Cookie session ограничена размером browser cookie и не поддерживает refresh token rotation. Для IdP с крупными access tokens потребуется server-side session store. `public_passport_configs` нельзя использовать для произвольных joins или возвращать клиенту целиком.
+Cookie session ограничена размером browser cookie. v0.4 добавляет refresh token rotation внутри зашифрованной `HttpOnly` cookie; для IdP, у которого суммарный размер access/refresh tokens превышает browser cookie limit, потребуется server-side session store. `public_passport_configs` нельзя использовать для произвольных joins или возвращать клиенту целиком.
 
 ## Проверка и rollback
 

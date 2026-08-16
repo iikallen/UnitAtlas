@@ -20,9 +20,11 @@ export async function GET(request: NextRequest) {
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   await saveFlow({ state, verifier, redirectUri, returnTo: request.nextUrl.searchParams.get("returnTo") ?? "/" });
   const target = new URL(discovery.authorization_endpoint);
+  const scope = process.env.OIDC_SCOPES?.trim() || "openid profile offline_access";
   target.search = new URLSearchParams({
-    client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "openid profile",
+    client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope,
     state, code_challenge: challenge, code_challenge_method: "S256"
   }).toString();
+  if (scope.split(/\s+/).includes("offline_access")) target.searchParams.set("prompt", process.env.OIDC_PROMPT?.trim() || "consent");
   return NextResponse.redirect(target);
 }

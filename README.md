@@ -48,7 +48,7 @@ Compose также включает development-only authentication: запро�
 
 В production API требует настройки `Authentication__Authority` и `Authentication__Audience`, валидирует OIDC access token и ожидает claims `sub` и `tenant_id`. Пользователь должен иметь соответствующую запись `TenantMembership`.
 
-Next.js BFF в production требует `APP_BASE_URL`, `OIDC_AUTHORITY`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` и случайный `AUTH_SESSION_SECRET`. Authorization Code + PKCE выполняется только server-side; access token хранится в зашифрованной `HttpOnly` cookie. Browser обращается к `/bff/*`, а не к API origin.
+Next.js BFF в production требует `APP_BASE_URL`, `OIDC_AUTHORITY`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI` и случайный `AUTH_SESSION_SECRET`. Authorization Code + PKCE и refresh grant выполняются только server-side; access/refresh tokens хранятся в зашифрованной `HttpOnly` cookie. По умолчанию запрашивается `openid profile offline_access`, а максимальная fallback-сессия равна 8 часам (`AUTH_SESSION_MAX_AGE_SECONDS`). Browser обращается к `/bff/*`, а не к API origin.
 
 Internal API: `/api/v1/*`. Anonymous API: только `/api/public/passports/{publicId}`. Public response не содержит actor, внутренних location, tenant, lot, SKU или ERP identifiers.
 
@@ -98,7 +98,7 @@ dotnet tool run dotnet-ef migrations script InitialArchitecture 0 --project src/
 
 Факт: API имеет generic OIDC bearer validation, permission policies, tenant context, EF query filters, composite FK и forced PostgreSQL RLS. Runtime DB-role не является superuser.
 
-Риск: внешний Identity Provider, client registration и production memberships не создаются репозиторием автоматически. BFF пока не обновляет истёкший access token через refresh token; после expiry пользователь входит повторно. Development demo auth нельзя включать в публичном окружении.
+Риск: внешний Identity Provider, client registration, разрешение `offline_access` и production memberships не создаются репозиторием автоматически. IdP client должен разрешать Authorization Code + PKCE, `client_secret_post`, refresh token rotation и согласованный session lifetime. Development demo auth нельзя включать в публичном окружении.
 
 Rate limits локальны одной pilot-реплике. Перед горизонтальным масштабированием их следует перенести в gateway/shared store. OTLP export включается через `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
