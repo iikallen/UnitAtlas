@@ -15,12 +15,12 @@ jobs:
           -v "${{ github.workspace }}/src/unitatlas-web:/app"
           -w /app node:24-alpine
           sh -lc "npm ci && npm run typecheck && npm run lint"
-      - name: Capture analyze and test
+      - name: Capture analyze, test and Android build
         run: >-
           docker run --rm
           -v "${{ github.workspace }}/src/unitatlas-capture:/app"
           -w /app ghcr.io/cirruslabs/flutter:stable@sha256:46691e311715845de03a3ba4753a475476936805b29431b1f00f1816981033f8
-          sh -lc "flutter pub get && flutter analyze && flutter test"
+          sh -lc "flutter pub get && flutter analyze && flutter test && flutter build apk --debug"
       - name: Build images
         run: docker compose build
       - name: Start isolated stack

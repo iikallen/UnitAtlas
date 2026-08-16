@@ -12,7 +12,9 @@ public static class CaptureEndpoints
         var capture = app.MapGroup("/api/v1/capture").RequireAuthorization();
         capture.MapGet("/bootstrap", Bootstrap).RequireAuthorization(Permissions.UnitsRead);
         capture.MapPost("/resolve", Resolve).RequireAuthorization(Permissions.UnitsRead).RequireRateLimiting("capture-sync");
-        capture.MapPost("/sync", Sync).RequireAuthorization(Permissions.PackagingManage).RequireRateLimiting("capture-sync");
+        capture.MapPost("/sync", Sync).RequireAuthorization(Permissions.CaptureUse).RequireRateLimiting("capture-sync");
+        capture.MapPost("/quality", Quality).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("capture-sync");
+        capture.MapPost("/move", Move).RequireAuthorization(Permissions.EventsRecord).RequireRateLimiting("capture-sync");
         return app;
     }
 
@@ -52,25 +54,75 @@ public static class CaptureEndpoints
                                 where content.ChildLogisticUnitId == logisticUnit.Id select logistic.Code).SingleOrDefaultAsync();
             return Results.Ok(new { kind = logisticUnit.Type, code = logisticUnit.Code, logisticUnit.Sscc, serverParent = parent });
         }
+        var product = await db.Products.AsNoTracking().SingleOrDefaultAsync(x => x.Gtin == code || x.Sku == code);
+        if (product is not null)
+            return Results.Ok(new { kind = "PRODUCT", code = product.Sku, product.Name, product.Gtin, serverParent = (string?)null });
         return Problem("IDENTIFIER_NOT_FOUND", "No UnitAtlas object matches this identifier.", 404);
     }
 
-    private static Task<IResult> Sync(CaptureSyncRequest request, UnitAtlasDb db, ITenantContext tenant)
+    private static Task<IResult> Sync(
+        CaptureSyncRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenant,
+        ILogger<Program> logger)
+    {
+        if (request.CommandId == Guid.Empty || string.IsNullOrWhiteSpace(request.DeviceId))
+            return Task.FromResult(Validation("command", "commandId and deviceId are required."));
+        var key = $"capture:{request.DeviceId.Trim()}:{request.CommandId:N}";
+        if (string.Equals(request.CommandType?.Trim(), "AGGREGATE", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!tenant.GrantedPermissions.Contains(Permissions.PackagingManage)) return Task.FromResult(Results.Forbid());
+            if (string.IsNullOrWhiteSpace(request.ParentCode)) return Task.FromResult(Validation("parentCode", "parentCode is required."));
+            return PackagingEndpoints.RecordAggregation(request.ParentCode.Trim(), new AggregationRequest(
+                request.Action, key, request.UnitAtlasIds, request.LogisticUnitCodes, request.OccurredAt,
+                request.ReadPointId, request.BusinessLocationId, "unitatlas-capture"), db, tenant);
+        }
+        if (string.Equals(request.CommandType?.Trim(), "TRACE_EVENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!tenant.GrantedPermissions.Contains(Permissions.EventsRecord)) return Task.FromResult(Results.Forbid());
+            if (string.IsNullOrWhiteSpace(request.UnitAtlasId)) return Task.FromResult(Validation("unitAtlasId", "unitAtlasId is required."));
+            return TraceEventEndpoints.RecordEvent(request.UnitAtlasId.Trim(), new EventRequest(
+                request.EventType, request.Location, key, null, request.OccurredAt, request.ReadPointId,
+                request.BusinessLocationId, null, null, "unitatlas-capture"), db, tenant, logger);
+        }
+        return Task.FromResult(Validation("commandType", "Allowed: AGGREGATE, TRACE_EVENT."));
+    }
+
+    private static Task<IResult> Quality(
+        CaptureQualityRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenant,
+        ILogger<Program> logger)
+    {
+        var eventType = request.Outcome?.Trim().ToUpperInvariant() switch
+        {
+            "PASS" => "QUALITY_PASSED",
+            "FAIL" => "QUALITY_FAILED",
+            "HOLD" => "QUALITY_HOLD",
+            _ => null
+        };
+        if (request.CommandId == Guid.Empty || string.IsNullOrWhiteSpace(request.DeviceId)
+            || string.IsNullOrWhiteSpace(request.UnitAtlasId) || eventType is null || string.IsNullOrWhiteSpace(request.Location))
+            return Task.FromResult(Validation("quality", "commandId, deviceId, unitAtlasId, location and outcome PASS, FAIL or HOLD are required."));
+        return TraceEventEndpoints.RecordEvent(request.UnitAtlasId.Trim(), new EventRequest(
+            eventType, request.Location, $"capture:{request.DeviceId.Trim()}:{request.CommandId:N}", null,
+            request.OccurredAt, request.ReadPointId, request.BusinessLocationId, "quality_inspection", null,
+            "unitatlas-capture"), db, tenant, logger);
+    }
+
+    private static Task<IResult> Move(
+        CaptureMoveRequest request,
+        UnitAtlasDb db,
+        ITenantContext tenant,
+        ILogger<Program> logger)
     {
         if (request.CommandId == Guid.Empty || string.IsNullOrWhiteSpace(request.DeviceId)
-            || !string.Equals(request.CommandType?.Trim(), "AGGREGATE", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(request.ParentCode))
-            return Task.FromResult(Validation("command", "commandId, deviceId, commandType AGGREGATE and parentCode are required."));
-        var aggregation = new AggregationRequest(
-            request.Action,
-            $"capture:{request.DeviceId.Trim()}:{request.CommandId:N}",
-            request.UnitAtlasIds,
-            request.LogisticUnitCodes,
-            request.OccurredAt,
-            request.ReadPointId,
-            request.BusinessLocationId,
-            "unitatlas-capture");
-        return PackagingEndpoints.RecordAggregation(request.ParentCode.Trim(), aggregation, db, tenant);
+            || string.IsNullOrWhiteSpace(request.UnitAtlasId) || string.IsNullOrWhiteSpace(request.To))
+            return Task.FromResult(Validation("move", "commandId, deviceId, unitAtlasId and destination are required."));
+        return TraceEventEndpoints.RecordEvent(request.UnitAtlasId.Trim(), new EventRequest(
+            "MOVED_TO_WAREHOUSE", request.To, $"capture:{request.DeviceId.Trim()}:{request.CommandId:N}", null,
+            request.OccurredAt, request.ReadPointId, request.BusinessLocationId, "storing", null,
+            "unitatlas-capture"), db, tenant, logger);
     }
 
     private static IResult Validation(string key, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [key] = [message] });

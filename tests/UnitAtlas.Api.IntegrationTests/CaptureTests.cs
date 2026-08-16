@@ -40,4 +40,27 @@ public sealed class CaptureTests
         var resolved = await (await _client.PostAsJsonAsync("/api/v1/capture/resolve", new { code = atlasId })).Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(box, resolved.GetProperty("serverParent").GetString());
     }
+
+    [Fact]
+    public async Task Quality_and_move_use_the_same_idempotent_trace_ledger()
+    {
+        var bootstrap = await _client.GetFromJsonAsync<JsonElement>("/api/v1/capture/bootstrap");
+        var productId = bootstrap.GetProperty("products")[0].GetProperty("id").GetGuid();
+        var unitResponse = await _client.PostAsJsonAsync("/api/v1/units", new { productId, serial = $"QC-{Guid.NewGuid():N}", lot = "CAPTURE-QC" });
+        var atlasId = (await unitResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("atlasId").GetString()!;
+        var commandId = Guid.NewGuid();
+        var quality = new { commandId, deviceId = "capture-test", unitAtlasId = atlasId, outcome = "PASS", location = "QC Station" };
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/capture/quality", quality)).StatusCode);
+        var replay = await _client.PostAsJsonAsync("/api/v1/capture/quality", quality);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        Assert.True((await replay.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("duplicate").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/capture/move", new
+        {
+            commandId = Guid.NewGuid(), deviceId = "capture-test", unitAtlasId = atlasId, to = "Rack 15"
+        })).StatusCode);
+        var passport = await _client.GetFromJsonAsync<JsonElement>($"/api/v1/units/{atlasId}");
+        Assert.Equal("In warehouse", passport.GetProperty("state").GetProperty("status").GetString());
+        Assert.Equal("Rack 15", passport.GetProperty("state").GetProperty("location").GetString());
+    }
 }
