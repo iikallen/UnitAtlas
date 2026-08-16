@@ -47,6 +47,8 @@ Important: restore without `--no-owner`. A trial with `--no-owner` correctly res
 
 Use the actual pilot scanner/camera and label stock. Record device, printer, symbology, network mode, success count, recognition errors, duplicate responses, sync retries, p50 and p95 acknowledgement latency. Synthetic parser tests are useful but do not satisfy this physical gate.
 
+In Capture, open the analytics icon and select `НОВЫЙ ЗАМЕР` immediately before the controlled run. Every accepted scanner/keyboard/camera value increments `successful`; when a physical attempt produces no readable value, the operator must press `Код не распознан` once. Command acknowledgements record the last HTTP latency, duplicate response and retry count. After the run, copy the report, fill the printer, symbology and network-mode fields, attach it to the release evidence and compare `physical_attempts` with the independently observed run count. Resetting the report never deletes queued commands or server history.
+
 ## Incident and rollback
 
 - Never clear the local command queue before server acknowledgement.

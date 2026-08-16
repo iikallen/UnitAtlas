@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api/capture_api.dart';
 import '../capture/pending_command.dart';
+import '../capture/pilot_report.dart';
 import '../database/local_database.dart';
 
 class CaptureRepository {
@@ -89,16 +90,31 @@ class CaptureRepository {
   Future<void> cancelConflict(String commandId) =>
       database.cancelCommand(commandId);
 
+  Future<void> recordAcceptedScan() => database.recordAcceptedScan();
+  Future<void> recordRecognitionError() => database.recordRecognitionError();
+  Future<void> resetPilotReport() => database.resetPilotReport();
+  Future<PilotReport> pilotReport() => database.pilotReport();
+
   Future<void> sync() async {
     for (final command in await database.pending()) {
+      final stopwatch = Stopwatch()..start();
       try {
+        late Map<String, dynamic> response;
         if (command.commandType == 'PRODUCTION') {
-          await api.production(command);
+          response = await api.production(command);
         } else {
-          await api.sync(command);
+          response = await api.sync(command);
         }
-        await database.updateResult(command.id, 'ACKNOWLEDGED', null);
+        stopwatch.stop();
+        await database.updateResult(
+          command.id,
+          'ACKNOWLEDGED',
+          null,
+          latencyMs: stopwatch.elapsedMilliseconds,
+          duplicate: response['duplicate'] as bool? ?? false,
+        );
       } on CaptureApiException catch (error) {
+        stopwatch.stop();
         var detail = error.body;
         if (error.statusCode == 409) {
           final units = command.payload['unitAtlasIds'] as List<dynamic>? ?? [];
@@ -119,13 +135,25 @@ class CaptureRepository {
             command.id,
             'CONFLICT',
             jsonEncode(detail),
+            latencyMs: stopwatch.elapsedMilliseconds,
           );
           continue;
         }
-        await database.updateResult(command.id, 'RETRY', jsonEncode(detail));
+        await database.updateResult(
+          command.id,
+          'RETRY',
+          jsonEncode(detail),
+          latencyMs: stopwatch.elapsedMilliseconds,
+        );
         break;
       } catch (error) {
-        await database.updateResult(command.id, 'RETRY', error.toString());
+        stopwatch.stop();
+        await database.updateResult(
+          command.id,
+          'RETRY',
+          error.toString(),
+          latencyMs: stopwatch.elapsedMilliseconds,
+        );
         break;
       }
     }

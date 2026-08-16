@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../capture/pending_command.dart';
 import '../scan/camera_scan_page.dart';
@@ -32,6 +33,39 @@ class _TaskHomeState extends State<TaskHome> {
   Future<void> refresh() async {
     final rows = await widget.repository.database.allCommands();
     if (mounted) setState(() => commands = rows);
+  }
+
+  Future<void> showPilotReport() async {
+    final report = await widget.repository.pilotReport();
+    if (!mounted) return;
+    final text = report.toText(
+      deviceId: widget.repository.deviceId,
+      station: widget.repository.station,
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Отчёт физического теста'),
+        content: SingleChildScrollView(child: SelectableText(text)),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await widget.repository.resetPilotReport();
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('НОВЫЙ ЗАМЕР'),
+          ),
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: text)),
+            child: const Text('КОПИРОВАТЬ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('ЗАКРЫТЬ'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> run(Future<void> Function() action, String success) async {
@@ -65,6 +99,11 @@ class _TaskHomeState extends State<TaskHome> {
       appBar: AppBar(
         title: const Text('UNITATLAS CAPTURE'),
         actions: [
+          IconButton(
+            tooltip: 'Отчёт физического теста',
+            onPressed: busy ? null : showPilotReport,
+            icon: const Icon(Icons.analytics_outlined),
+          ),
           if (widget.onSignOut != null)
             IconButton(
               tooltip: 'Выйти',
@@ -349,6 +388,7 @@ class _ProductionWorkflowState extends State<ProductionWorkflow> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ScanInput(
+            repository: widget.repository,
             label: 'Сканируйте напечатанную этикетку',
             onScan: (raw) =>
                 setState(() => scannedCode = ScanParser.parse(raw).identifier),
@@ -421,6 +461,7 @@ class _PackagingWorkflowState extends State<PackagingWorkflow> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ScanInput(
+            repository: widget.repository,
             label: parent == null
                 ? 'Сканируйте родительскую упаковку'
                 : 'Сканируйте содержимое',
@@ -481,6 +522,7 @@ class _TraceWorkflowState extends State<TraceWorkflow> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ScanInput(
+            repository: widget.repository,
             label: 'Сканируйте изделие',
             onScan: (raw) =>
                 setState(() => unit = ScanParser.parse(raw).identifier),
@@ -545,7 +587,11 @@ class _FindWorkflowState extends State<FindWorkflow> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ScanInput(label: 'Сканируйте или введите код', onScan: resolve),
+          ScanInput(
+            repository: widget.repository,
+            label: 'Сканируйте или введите код',
+            onScan: resolve,
+          ),
           if (result != null) SelectableText(result.toString()),
           if (error != null)
             Text(
@@ -559,7 +605,13 @@ class _FindWorkflowState extends State<FindWorkflow> {
 }
 
 class ScanInput extends StatefulWidget {
-  const ScanInput({super.key, required this.label, required this.onScan});
+  const ScanInput({
+    super.key,
+    required this.repository,
+    required this.label,
+    required this.onScan,
+  });
+  final CaptureRepository repository;
   final String label;
   final ValueChanged<String> onScan;
   @override
@@ -576,7 +628,8 @@ class _ScanInputState extends State<ScanInput> {
   void initState() {
     super.initState();
     intentSource = AndroidIntentScanSource();
-    void accept(String value) {
+    Future<void> accept(String value) async {
+      await widget.repository.recordAcceptedScan();
       widget.onScan(value);
       controller.clear();
     }
@@ -606,15 +659,35 @@ class _ScanInputState extends State<ScanInput> {
     if (value != null) keyboardSource.submit(value);
   }
 
+  Future<void> recognitionError() async {
+    await widget.repository.recordRecognitionError();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ошибка распознавания учтена')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) => TextField(
     controller: controller,
     autofocus: true,
     decoration: InputDecoration(
       labelText: widget.label,
-      suffixIcon: IconButton(
-        onPressed: camera,
-        icon: const Icon(Icons.qr_code_scanner),
+      suffixIcon: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Код не распознан',
+            onPressed: recognitionError,
+            icon: const Icon(Icons.report_gmailerrorred),
+          ),
+          IconButton(
+            tooltip: 'Сканировать камерой',
+            onPressed: camera,
+            icon: const Icon(Icons.qr_code_scanner),
+          ),
+        ],
       ),
     ),
     onSubmitted: keyboardSource.submit,
