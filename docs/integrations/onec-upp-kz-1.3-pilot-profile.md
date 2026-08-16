@@ -74,4 +74,4 @@ Reusing the same `X-External-Message-Id` with the same payload returns the store
 
 ## Pilot evidence still required
 
-The automated E2E verifies 100 Unit creation, 100 label payloads, Capture confirmations, Unit → Box → Pallet aggregation, conflict handling, shipment delivery and EPCIS projection. It does not replace validation with the real 1C database, installed extension, printer, labels or scanner.
+The automated E2E verifies 100 Unit creation, 100 label payloads, Capture confirmations, Unit → Box → Pallet aggregation, conflict handling, Capture-originated shipment delivery to 1C and EPCIS projection. It does not replace validation with the real 1C database, installed extension, printer, labels or scanner.

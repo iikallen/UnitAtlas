@@ -116,6 +116,15 @@ internal static class TraceEventEndpoints
                     Source = "unitatlas", Type = "trace_event.recorded", SubjectType = "TraceEvent", SubjectId = trace.Id.ToString(),
                     PayloadJson = JsonSerializer.Serialize(new { trace.Id, unit.AtlasId, state.Status, state.Location }), CreatedAt = now
                 });
+            if (trace.EventType is "SHIPPED" or "RECEIVED")
+                db.OutboxMessages.Add(new OutboxMessage
+                {
+                    Id = Guid.CreateVersion7(), TenantId = unit.TenantId, CorrelationId = trace.Id,
+                    Source = "unitatlas", Type = trace.EventType == "SHIPPED" ? "shipment.recorded" : "receipt.recorded",
+                    SubjectType = "TrackedUnit", SubjectId = unit.Id.ToString(),
+                    PayloadJson = JsonSerializer.Serialize(new { traceId = trace.Id, unitId = unit.Id, unit.AtlasId, trace.Location, trace.OccurredAt, trace.SourceSystem }),
+                    CreatedAt = now
+                });
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
             ingestActivity?.SetTag("unitatlas.event_id", trace.Id);
