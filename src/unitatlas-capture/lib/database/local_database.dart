@@ -117,4 +117,13 @@ class LocalDatabase {
       [status, error, id],
     );
   }
+
+  Future<void> cancelCommand(String id) async {
+    await (await _db).update(
+      'pending_commands',
+      {'sync_status': 'CANCELLED', 'last_error': null},
+      where: 'id = ? AND sync_status = ?',
+      whereArgs: [id, 'CONFLICT'],
+    );
+  }
 }
