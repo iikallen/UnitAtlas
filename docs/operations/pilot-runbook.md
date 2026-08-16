@@ -38,7 +38,7 @@ docker compose exec -T db pg_restore -U unitatlas_admin --role=unitatlas `
 
 Сравнить counts ключевых таблиц и `__EFMigrationsHistory`, forced RLS для всех tenant-таблиц, SELECT/INSERT policies и append-only triggers, а также нулевую видимость runtime role без tenant context. Только после успешной проверки удалить временную БД и dump.
 
-Исторический rehearsal v0.1 от 2026-08-16: source и restore совпали `[units=4, trace_events=7, audit_entries=0, outbox_messages=0, migrations=5]`; runtime role без tenant context увидела `0` units. Для v0.3 требуется новый rehearsal после применения всех восьми миграций.
+Исторический rehearsal v0.1 от 2026-08-16: source и restore совпали `[units=4, trace_events=7, audit_entries=0, outbox_messages=0, migrations=5]`; runtime role без tenant context увидела `0` units. Перед следующим release нужен новый rehearsal после применения полного набора миграций; заводские проверки v0.4 описаны в [factory-pilot runbook](factory-pilot-runbook.md).
 
 ## Incident and rollback
 
@@ -56,4 +56,4 @@ Rollback приложения — вернуть предыдущий image sha.
 - Clean database migration и migration rollback rehearsal зелёные.
 - Tenant/RLS negative tests, public-data allow-list и production OIDC flow зелёные.
 - Backup/restore rehearsal зелёная.
-- PR chain review/merge выполнены; только затем annotated tag `v0.1.0` ставится на `main` и публикуется release evidence.
+- PR chain review/merge выполнены; только затем release tag текущей версии ставится на проверенный `main` и публикуется release evidence.

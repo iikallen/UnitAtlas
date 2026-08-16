@@ -20,7 +20,7 @@
 - ASP.NET Core 10, Next.js, EF Core migrations и Docker Compose;
 - unit- и HTTP integration-тесты в CI.
 
-Архитектурные границы описаны в [ADR 0001](docs/adr/0001-modular-monolith.md), прогресс к пилоту — в [матрице v0.1](docs/architecture/v0.1-definition-of-done.md), эксплуатация — в [pilot runbook](docs/operations/pilot-runbook.md).
+Архитектурные границы описаны в [ADR 0001](docs/adr/0001-modular-monolith.md), проверяемая цель factory pilot — в [матрице v0.4](docs/architecture/v0.4-definition-of-done.md), эксплуатация — в [factory-pilot runbook](docs/operations/factory-pilot-runbook.md).
 
 ## Запуск
 
